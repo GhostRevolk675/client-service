@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+www/
+
+# Android build artifacts
+android/app/build/
+android/.gradle/
+android/local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+*.keystore

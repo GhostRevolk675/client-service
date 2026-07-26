@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ephemeral Chat</string>
+    <string name="title_activity_main">Ephemeral Chat</string>
+    <string name="package_name">com.ephemeral.chat</string>
+    <string name="custom_url_scheme">com.ephemeral.chat</string>
+</resources>
