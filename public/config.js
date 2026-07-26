@@ -15,7 +15,7 @@ const APP_CONFIG = {
   //   'http://192.168.1.100:3000'  (rede local)
   //   'https://meu-servidor.com'    (servidor remoto)
   //   null                          (usar mesma origem - web apenas)
-  SERVER_URL: null,
+  SERVER_URL: 'http://172.20.0.10:3000',
 
   // Tempo de vida das mensagens (deve ser igual ao servidor)
   MESSAGE_TTL: 3000,
