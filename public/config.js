@@ -8,7 +8,7 @@
 
 const APP_CONFIG = {
   // ⚠️ ALTERE ESTA URL após fazer deploy no Render:
-  SERVER_URL: 'https://client-service-r1al.onrender.com',
+  SERVER_URL: 'https://ephemeral-chat-production-83b7.up.railway.app',
 
   // Tempo de vida das mensagens (deve ser igual ao servidor)
   MESSAGE_TTL: 3000,
