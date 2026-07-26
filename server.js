@@ -49,6 +49,18 @@ app.use((req, res, next) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    dirname: __dirname,
+    publicExists: require('fs').existsSync(path.join(__dirname, 'public')),
+    files: require('fs').existsSync(path.join(__dirname, 'public')) 
+      ? require('fs').readdirSync(path.join(__dirname, 'public')) 
+      : []
+  });
+});
+
 // ============================================================
 // Banco de dados em memória (persistido em arquivo JSON)
 // ============================================================
@@ -524,7 +536,7 @@ function deleteMessage(messageId) {
 // Iniciar servidor
 // ============================================================
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`
   ╔══════════════════════════════════════════╗
   ║       EPHEMERAL CHAT - Servidor          ║
