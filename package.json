@@ -14,7 +14,14 @@
     "build:android": "node scripts/build.js && npx cap sync android",
     "apk:debug": "node scripts/build.js && npx cap sync android && cd android && gradlew.bat assembleDebug"
   },
-  "keywords": ["chat", "ephemeral", "privacy", "realtime", "socketio", "android"],
+  "keywords": [
+    "chat",
+    "ephemeral",
+    "privacy",
+    "realtime",
+    "socketio",
+    "android"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
@@ -29,6 +36,7 @@
     "@capacitor/local-notifications": "5.0.7",
     "@capacitor/splash-screen": "5.0.7",
     "@capacitor/status-bar": "5.0.7",
-    "nodemon": "3.0.2"
+    "nodemon": "3.0.2",
+    "socket.io-client": "^4.8.3"
   }
 }

@@ -117,6 +117,8 @@ function connectSocket() {
 
   state.socket.on('connect_error', (err) => {
     console.error('[Ephemeral] Erro de conexão:', err.message);
+    // Mostrar login mesmo sem conexão (usuário verá erro ao tentar logar)
+    navigateToScreen('login');
   });
 
   // -- Lista de amigos atualizada
@@ -272,6 +274,12 @@ function handleLogin(e) {
     return;
   }
 
+  // Verificar conexão com servidor
+  if (!state.socket || !state.socket.connected) {
+    showError(DOM.loginError, 'Sem conexão com o servidor. Verifique se o servidor está rodando.');
+    return;
+  }
+
   DOM.loginError.textContent = '';
 
   state.socket.emit('auth:login', { username, password }, (response) => {
@@ -302,6 +310,12 @@ function handleRegister(e) {
   }
   if (password.length < 4) {
     showError(DOM.registerError, 'Senha deve ter pelo menos 4 caracteres');
+    return;
+  }
+
+  // Verificar conexão com servidor
+  if (!state.socket || !state.socket.connected) {
+    showError(DOM.registerError, 'Sem conexão com o servidor. Verifique se o servidor está rodando.');
     return;
   }
 

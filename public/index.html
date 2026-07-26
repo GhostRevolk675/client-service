@@ -5,8 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
   <title>Ephemeral Chat</title>
   <link rel="stylesheet" href="styles.css">
-  <!-- Socket.IO client (CDN) -->
+  <!-- Socket.IO client (CDN with local fallback) -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    if (typeof io === 'undefined') {
+      var s = document.createElement('script');
+      s.src = '/socket.io/socket.io.js';
+      document.head.appendChild(s);
+    }
+  </script>
   <!-- Configuração -->
   <script src="config.js"></script>
   <!-- Google Fonts - Inter -->
