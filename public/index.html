@@ -259,7 +259,44 @@
             <span id="chat-contact-status" class="status-text">offline</span>
           </div>
         </div>
+        <!-- Menu 3 barras/pontos no chat -->
+        <div class="chat-menu-wrapper">
+          <button id="chat-menu-btn" class="btn-icon" title="Opções">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/>
+            </svg>
+          </button>
+          <!-- Dropdown menu -->
+          <div id="chat-menu-dropdown" class="chat-dropdown hidden">
+            <div class="dropdown-item" id="keep-chat-btn">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+              </svg>
+              <div class="dropdown-item-text">
+                <span class="dropdown-item-title">Manter conversa?</span>
+                <span class="dropdown-item-desc">Ao ativar, suas mensagens ficarão salvas para que você possa acessá-las novamente a qualquer momento.</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </header>
+
+      <!-- Balão de privacidade no topo do chat -->
+      <div id="chat-privacy-balloon" class="chat-privacy-balloon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <span>Todas as mensagens enviadas serão protegidas e acessíveis apenas por você e pelo destinatário.</span>
+      </div>
+
+      <!-- Aviso de conversa mantida -->
+      <div id="kept-chat-notice" class="kept-chat-notice hidden">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>Conversa mantida — mensagens não serão apagadas</span>
+      </div>
 
       <!-- Área de mensagens -->
       <div id="messages-container" class="messages-area">
@@ -271,15 +308,6 @@
           </div>
           <span class="typing-text">digitando...</span>
         </div>
-      </div>
-
-      <!-- Aviso de privacidade -->
-      <div class="privacy-notice">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
-        <span>Mensagens desaparecem em 3s</span>
       </div>
 
       <!-- Área de input -->
@@ -296,6 +324,26 @@
       </div>
     </div>
 
+    <!-- ======================================================== -->
+    <!-- Modal de confirmação "Manter conversa" -->
+    <!-- ======================================================== -->
+    <div id="keep-modal" class="modal hidden">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="2">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <h4 class="modal-title">Manter conversa</h4>
+        <p class="modal-text">Primeiro, a outra pessoa precisa aceitar o convite para manter esta conversa. Após a confirmação, as mensagens não serão apagadas automaticamente.</p>
+        <div class="modal-actions">
+          <button id="keep-modal-cancel" class="btn-modal-cancel">Cancelar</button>
+          <button id="keep-modal-confirm" class="btn-modal-confirm">Enviar convite</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Template de mensagem -->
@@ -308,6 +356,24 @@
       </div>
       <div class="timer-bar">
         <div class="timer-bar-fill"></div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Template de convite "Manter conversa" -->
+  <template id="keep-invite-template">
+    <div class="system-message keep-invite">
+      <div class="system-message-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+      <div class="system-message-text">
+        <strong></strong> quer manter esta conversa. Mensagens não serão mais apagadas.
+      </div>
+      <div class="system-message-actions">
+        <button class="btn-accept btn-invite-accept">Aceitar</button>
+        <button class="btn-reject btn-invite-reject">Recusar</button>
       </div>
     </div>
   </template>

@@ -3,7 +3,8 @@
  * 
  * Servidor de mensagens efêmeras com Socket.IO.
  * Inclui: autenticação, sistema de amigos (Almas),
- * mensagens em tempo real com auto-destruição em 3s.
+ * mensagens em tempo real com auto-destruição dinâmica,
+ * sistema "Manter Conversa" com consentimento mútuo.
  */
 
 const express = require('express');
@@ -29,11 +30,32 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// Tempo de vida das mensagens em milissegundos
-const MESSAGE_TTL = 3000;
+// ============================================================
+// TTL Dinâmico baseado no tamanho da mensagem
+// ============================================================
+
+/**
+ * Calcula o tempo de vida da mensagem baseado no número de caracteres.
+ * Mínimo: 2 segundos | Máximo: 20 segundos
+ * 
+ * Escala:
+ *   10 chars = 2s
+ *   40 chars = 4s
+ *   100 chars = 7s
+ *   200 chars = 12s
+ *   300 chars = 17s
+ */
+function calculateTTL(contentLength) {
+  if (contentLength <= 10) return 2000;
+  if (contentLength <= 40) return Math.round(2000 + ((contentLength - 10) / 30) * 2000);
+  if (contentLength <= 100) return Math.round(4000 + ((contentLength - 40) / 60) * 3000);
+  if (contentLength <= 200) return Math.round(7000 + ((contentLength - 100) / 100) * 5000);
+  if (contentLength <= 300) return Math.round(12000 + ((contentLength - 200) / 100) * 5000);
+  return 20000; // máximo
+}
 
 // ============================================================
-// CORS middleware (para o app Android se conectar via HTTP)
+// CORS middleware
 // ============================================================
 
 app.use((req, res, next) => {
@@ -54,9 +76,9 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     dirname: __dirname,
-    publicExists: require('fs').existsSync(path.join(__dirname, 'public')),
-    files: require('fs').existsSync(path.join(__dirname, 'public')) 
-      ? require('fs').readdirSync(path.join(__dirname, 'public')) 
+    publicExists: fs.existsSync(path.join(__dirname, 'public')),
+    files: fs.existsSync(path.join(__dirname, 'public')) 
+      ? fs.readdirSync(path.join(__dirname, 'public')) 
       : []
   });
 });
@@ -67,20 +89,24 @@ app.get('/health', (req, res) => {
 
 const DB_PATH = path.join(__dirname, 'data.json');
 
-// Estrutura do banco de dados
 let db = {
-  users: {},          // { username: { username, password, createdAt } }
-  friends: {},        // { username: [friendUsername, ...] }
-  friendRequests: {}, // { username: [{ from, timestamp }, ...] }
-  sessions: {}        // { token: { username, createdAt } }
+  users: {},           // { username: { username, password, createdAt } }
+  friends: {},         // { username: [friendUsername, ...] }
+  friendRequests: {},  // { username: [{ from, timestamp }, ...] }
+  sessions: {},        // { token: { username, createdAt } }
+  keptChats: {},       // { "user1:user2": true } - conversas mantidas (ambos aceitaram)
+  keepRequests: {}     // { "user1:user2": { from, timestamp } } - solicitações pendentes
 };
 
-// Carregar banco de dados do arquivo se existir
 function loadDB() {
   try {
     if (fs.existsSync(DB_PATH)) {
       const data = fs.readFileSync(DB_PATH, 'utf-8');
-      db = JSON.parse(data);
+      const loaded = JSON.parse(data);
+      db = { ...db, ...loaded };
+      // Garantir que campos novos existam
+      if (!db.keptChats) db.keptChats = {};
+      if (!db.keepRequests) db.keepRequests = {};
       console.log('[DB] Banco de dados carregado');
     }
   } catch (err) {
@@ -88,7 +114,6 @@ function loadDB() {
   }
 }
 
-// Salvar banco de dados no arquivo
 function saveDB() {
   try {
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
@@ -97,24 +122,38 @@ function saveDB() {
   }
 }
 
-// Carregar ao iniciar
 loadDB();
 
 // ============================================================
-// Armazenamento em memória (mensagens e usuários online)
+// Armazenamento em memória
 // ============================================================
 
-// Mensagens ativas (ainda não expiraram)
 const activeMessages = new Map();
-
-// Timers de exclusão de mensagens
 const messageTimers = new Map();
-
-// Usuários conectados: socketId -> { username, online }
 const connectedUsers = new Map();
-
-// Mapeamento username -> socketId (para envio direto)
 const userSockets = new Map();
+
+// Mensagens mantidas (não expiram): { "user1:user2": [message, ...] }
+const keptMessages = new Map();
+
+// ============================================================
+// Funções auxiliares para "Manter Conversa"
+// ============================================================
+
+/**
+ * Gera chave única para um par de usuários (ordem alfabética)
+ */
+function getChatKey(user1, user2) {
+  return [user1, user2].sort().join(':');
+}
+
+/**
+ * Verifica se uma conversa está no modo "manter"
+ */
+function isChatKept(user1, user2) {
+  const key = getChatKey(user1, user2);
+  return db.keptChats[key] === true;
+}
 
 // ============================================================
 // Lógica de Socket.IO
@@ -124,12 +163,11 @@ io.on('connection', (socket) => {
   console.log(`[+] Conexão: ${socket.id}`);
 
   // ----------------------------------------------------------
-  // AUTENTICAÇÃO: Registro de conta
+  // AUTENTICAÇÃO: Registro
   // ----------------------------------------------------------
   socket.on('auth:register', (data, callback) => {
     const { username, password } = data;
 
-    // Validações
     if (!username || username.trim().length < 2) {
       return callback({ success: false, error: 'Nome de usuário deve ter pelo menos 2 caracteres' });
     }
@@ -139,42 +177,27 @@ io.on('connection', (socket) => {
 
     const normalizedUsername = username.trim().toLowerCase();
 
-    // Verificar se já existe
     if (db.users[normalizedUsername]) {
       return callback({ success: false, error: 'Esse nome de usuário já está em uso' });
     }
 
-    // Criar usuário
     db.users[normalizedUsername] = {
       username: username.trim(),
       displayName: username.trim(),
-      password: password, // Em produção, usar bcrypt
+      password: password,
       createdAt: Date.now()
     };
 
-    // Inicializar listas
     db.friends[normalizedUsername] = [];
     db.friendRequests[normalizedUsername] = [];
 
-    // Criar sessão
     const token = uuidv4();
-    db.sessions[token] = {
-      username: normalizedUsername,
-      createdAt: Date.now()
-    };
+    db.sessions[token] = { username: normalizedUsername, createdAt: Date.now() };
 
     saveDB();
+    console.log(`[auth] Novo usuário: ${username.trim()}`);
 
-    console.log(`[auth] Novo usuário registrado: ${username.trim()}`);
-
-    callback({
-      success: true,
-      token,
-      user: {
-        username: normalizedUsername,
-        displayName: username.trim()
-      }
-    });
+    callback({ success: true, token, user: { username: normalizedUsername, displayName: username.trim() } });
   });
 
   // ----------------------------------------------------------
@@ -194,29 +217,16 @@ io.on('connection', (socket) => {
       return callback({ success: false, error: 'Usuário ou senha incorretos' });
     }
 
-    // Criar sessão
     const token = uuidv4();
-    db.sessions[token] = {
-      username: normalizedUsername,
-      createdAt: Date.now()
-    };
-
+    db.sessions[token] = { username: normalizedUsername, createdAt: Date.now() };
     saveDB();
 
     console.log(`[auth] Login: ${normalizedUsername}`);
-
-    callback({
-      success: true,
-      token,
-      user: {
-        username: normalizedUsername,
-        displayName: user.displayName || user.username
-      }
-    });
+    callback({ success: true, token, user: { username: normalizedUsername, displayName: user.displayName || user.username } });
   });
 
   // ----------------------------------------------------------
-  // AUTENTICAÇÃO: Validar sessão (token)
+  // AUTENTICAÇÃO: Validar sessão
   // ----------------------------------------------------------
   socket.on('auth:validate', (data, callback) => {
     const { token } = data;
@@ -234,13 +244,7 @@ io.on('connection', (socket) => {
       return callback({ success: false, error: 'Usuário não encontrado' });
     }
 
-    callback({
-      success: true,
-      user: {
-        username: session.username,
-        displayName: user.displayName || user.username
-      }
-    });
+    callback({ success: true, user: { username: session.username, displayName: user.displayName || user.username } });
   });
 
   // ----------------------------------------------------------
@@ -255,19 +259,15 @@ io.on('connection', (socket) => {
   });
 
   // ----------------------------------------------------------
-  // USUÁRIO: Entrar (após autenticação)
+  // USUÁRIO: Entrar
   // ----------------------------------------------------------
   socket.on('user:join', (data) => {
     const { username } = data;
 
-    connectedUsers.set(socket.id, {
-      username,
-      online: true
-    });
-
+    connectedUsers.set(socket.id, { username, online: true });
     userSockets.set(username, socket.id);
 
-    // Notificar amigos que este usuário está online
+    // Notificar amigos
     const friends = db.friends[username] || [];
     friends.forEach((friendUsername) => {
       const friendSocketId = userSockets.get(friendUsername);
@@ -276,7 +276,6 @@ io.on('connection', (socket) => {
       }
     });
 
-    // Enviar lista de amigos e solicitações pendentes
     socket.emit('friends:list', getFriendsWithStatus(username));
     socket.emit('friends:requests', db.friendRequests[username] || []);
 
@@ -284,100 +283,76 @@ io.on('connection', (socket) => {
   });
 
   // ----------------------------------------------------------
-  // ALMAS: Enviar solicitação de amizade
+  // ALMAS: Solicitação de amizade
   // ----------------------------------------------------------
   socket.on('friends:request', (data, callback) => {
     const { from, to } = data;
     const normalizedTo = to.trim().toLowerCase();
 
-    // Verificar se o usuário destino existe
     if (!db.users[normalizedTo]) {
       return callback({ success: false, error: 'Usuário não encontrado' });
     }
-
-    // Não pode adicionar a si mesmo
     if (normalizedTo === from) {
       return callback({ success: false, error: 'Você não pode adicionar a si mesmo' });
     }
 
-    // Verificar se já são amigos
     const friends = db.friends[from] || [];
     if (friends.includes(normalizedTo)) {
       return callback({ success: false, error: 'Vocês já são Almas conectadas' });
     }
 
-    // Verificar se já existe solicitação pendente
     const requests = db.friendRequests[normalizedTo] || [];
     if (requests.some(r => r.from === from)) {
       return callback({ success: false, error: 'Solicitação já enviada' });
     }
 
-    // Verificar se a outra pessoa já mandou solicitação (aceitar automaticamente)
+    // Auto-aceitar se a outra pessoa já mandou
     const myRequests = db.friendRequests[from] || [];
     const existingRequest = myRequests.find(r => r.from === normalizedTo);
     if (existingRequest) {
-      // Aceitar automaticamente (ambos se adicionaram)
       acceptFriendRequest(from, normalizedTo);
       return callback({ success: true, message: 'Alma conectada!' });
     }
 
-    // Adicionar solicitação
-    if (!db.friendRequests[normalizedTo]) {
-      db.friendRequests[normalizedTo] = [];
-    }
+    if (!db.friendRequests[normalizedTo]) db.friendRequests[normalizedTo] = [];
     db.friendRequests[normalizedTo].push({
       from,
       fromDisplayName: db.users[from]?.displayName || from,
       timestamp: Date.now()
     });
-
     saveDB();
 
-    // Notificar o destinatário em tempo real se estiver online
     const targetSocketId = userSockets.get(normalizedTo);
     if (targetSocketId) {
       io.to(targetSocketId).emit('friends:requests', db.friendRequests[normalizedTo]);
     }
 
-    console.log(`[almas] ${from} -> ${normalizedTo} (solicitação enviada)`);
-
+    console.log(`[almas] ${from} -> ${normalizedTo} (solicitação)`);
     callback({ success: true, message: 'Solicitação enviada!' });
   });
 
-  // ----------------------------------------------------------
-  // ALMAS: Aceitar solicitação
-  // ----------------------------------------------------------
   socket.on('friends:accept', (data, callback) => {
     const { username, from } = data;
     acceptFriendRequest(username, from);
     callback({ success: true });
   });
 
-  // ----------------------------------------------------------
-  // ALMAS: Rejeitar solicitação
-  // ----------------------------------------------------------
   socket.on('friends:reject', (data, callback) => {
     const { username, from } = data;
-
-    // Remover solicitação
     if (db.friendRequests[username]) {
       db.friendRequests[username] = db.friendRequests[username].filter(r => r.from !== from);
     }
     saveDB();
-
-    // Atualizar lista de solicitações
     socket.emit('friends:requests', db.friendRequests[username] || []);
-
     callback({ success: true });
   });
 
   // ----------------------------------------------------------
-  // MENSAGENS: Enviar nova mensagem
+  // MENSAGENS: Enviar
   // ----------------------------------------------------------
   socket.on('message:send', (data) => {
     const { senderId, receiverId, content } = data;
 
-    // Criar mensagem com ID único e timestamp
     const message = {
       id: uuidv4(),
       senderId,
@@ -387,29 +362,146 @@ io.on('connection', (socket) => {
       delivered: true
     };
 
+    // Calcular TTL dinâmico baseado no tamanho
+    const ttl = calculateTTL(content.length);
+    message.ttl = ttl;
+
+    // Verificar se a conversa está em modo "manter"
+    const kept = isChatKept(senderId, receiverId);
+    message.kept = kept;
+
     // Armazenar mensagem ativa
     activeMessages.set(message.id, message);
 
-    // Enviar para o remetente
+    // Enviar para ambos
     const senderSocketId = userSockets.get(senderId);
-    if (senderSocketId) {
-      io.to(senderSocketId).emit('message:new', message);
-    }
-
-    // Enviar para o destinatário
     const receiverSocketId = userSockets.get(receiverId);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('message:new', message);
+
+    if (senderSocketId) io.to(senderSocketId).emit('message:new', message);
+    if (receiverSocketId) io.to(receiverSocketId).emit('message:new', message);
+
+    console.log(`[msg] ${senderId} -> ${receiverId}: "${content}" (TTL: ${ttl}ms, kept: ${kept})`);
+
+    // Se a conversa NÃO está mantida, agendar exclusão
+    if (!kept) {
+      const timer = setTimeout(() => {
+        deleteMessage(message.id);
+      }, ttl);
+      messageTimers.set(message.id, timer);
+    } else {
+      // Armazenar em mensagens mantidas
+      const chatKey = getChatKey(senderId, receiverId);
+      if (!keptMessages.has(chatKey)) keptMessages.set(chatKey, []);
+      keptMessages.get(chatKey).push(message);
+    }
+  });
+
+  // ----------------------------------------------------------
+  // MANTER CONVERSA: Solicitar
+  // ----------------------------------------------------------
+  socket.on('keep:request', (data, callback) => {
+    const { from, to } = data;
+    const chatKey = getChatKey(from, to);
+
+    // Verificar se já está mantida
+    if (db.keptChats[chatKey]) {
+      return callback({ success: false, error: 'Esta conversa já está sendo mantida' });
     }
 
-    console.log(`[msg] ${senderId} -> ${receiverId}: "${content}"`);
+    // Verificar se já existe solicitação
+    if (db.keepRequests[chatKey]) {
+      // Se a outra pessoa já solicitou, aceitar automaticamente
+      if (db.keepRequests[chatKey].from === to) {
+        db.keptChats[chatKey] = true;
+        delete db.keepRequests[chatKey];
+        saveDB();
 
-    // Agendar exclusão automática após 3 segundos
-    const timer = setTimeout(() => {
-      deleteMessage(message.id);
-    }, MESSAGE_TTL);
+        // Notificar ambos
+        const fromSocketId = userSockets.get(from);
+        const toSocketId = userSockets.get(to);
+        if (fromSocketId) io.to(fromSocketId).emit('keep:accepted', { chatKey, with: to });
+        if (toSocketId) io.to(toSocketId).emit('keep:accepted', { chatKey, with: from });
 
-    messageTimers.set(message.id, timer);
+        return callback({ success: true, message: 'Conversa mantida!' });
+      }
+      return callback({ success: false, error: 'Aguardando resposta do outro participante' });
+    }
+
+    // Criar solicitação
+    db.keepRequests[chatKey] = { from, timestamp: Date.now() };
+    saveDB();
+
+    // Enviar convite para a outra pessoa via mensagem do sistema
+    const toSocketId = userSockets.get(to);
+    if (toSocketId) {
+      io.to(toSocketId).emit('keep:invite', { 
+        from, 
+        fromDisplayName: db.users[from]?.displayName || from,
+        chatKey 
+      });
+    }
+
+    console.log(`[keep] ${from} solicitou manter conversa com ${to}`);
+    callback({ success: true, message: 'Convite enviado! A outra pessoa precisa aceitar.' });
+  });
+
+  // ----------------------------------------------------------
+  // MANTER CONVERSA: Aceitar
+  // ----------------------------------------------------------
+  socket.on('keep:accept', (data, callback) => {
+    const { username, chatKey } = data;
+
+    if (!db.keepRequests[chatKey]) {
+      return callback({ success: false, error: 'Solicitação não encontrada' });
+    }
+
+    // Ativar modo manter
+    db.keptChats[chatKey] = true;
+    const requester = db.keepRequests[chatKey].from;
+    delete db.keepRequests[chatKey];
+    saveDB();
+
+    // Notificar ambos
+    const requesterSocketId = userSockets.get(requester);
+    const accepterSocketId = userSockets.get(username);
+
+    if (requesterSocketId) io.to(requesterSocketId).emit('keep:accepted', { chatKey, with: username });
+    if (accepterSocketId) io.to(accepterSocketId).emit('keep:accepted', { chatKey, with: requester });
+
+    console.log(`[keep] ${username} aceitou manter conversa (${chatKey})`);
+    callback({ success: true });
+  });
+
+  // ----------------------------------------------------------
+  // MANTER CONVERSA: Recusar
+  // ----------------------------------------------------------
+  socket.on('keep:reject', (data, callback) => {
+    const { username, chatKey } = data;
+
+    if (db.keepRequests[chatKey]) {
+      const requester = db.keepRequests[chatKey].from;
+      delete db.keepRequests[chatKey];
+      saveDB();
+
+      // Notificar quem solicitou
+      const requesterSocketId = userSockets.get(requester);
+      if (requesterSocketId) {
+        io.to(requesterSocketId).emit('keep:rejected', { chatKey, by: username });
+      }
+    }
+
+    callback({ success: true });
+  });
+
+  // ----------------------------------------------------------
+  // MANTER CONVERSA: Verificar status
+  // ----------------------------------------------------------
+  socket.on('keep:status', (data, callback) => {
+    const { user1, user2 } = data;
+    const chatKey = getChatKey(user1, user2);
+    const kept = db.keptChats[chatKey] === true;
+    const pending = db.keepRequests[chatKey] || null;
+    callback({ kept, pending });
   });
 
   // ----------------------------------------------------------
@@ -428,9 +520,7 @@ io.on('connection', (socket) => {
   // ----------------------------------------------------------
   socket.on('disconnect', () => {
     const user = connectedUsers.get(socket.id);
-
     if (user) {
-      // Notificar amigos que este usuário saiu
       const friends = db.friends[user.username] || [];
       friends.forEach((friendUsername) => {
         const friendSocketId = userSockets.get(friendUsername);
@@ -438,7 +528,6 @@ io.on('connection', (socket) => {
           io.to(friendSocketId).emit('user:status', { username: user.username, online: false });
         }
       });
-
       userSockets.delete(user.username);
       connectedUsers.delete(socket.id);
       console.log(`[-] ${user.username} desconectou`);
@@ -450,29 +539,18 @@ io.on('connection', (socket) => {
 // Funções auxiliares
 // ============================================================
 
-/**
- * Aceita uma solicitação de amizade e conecta ambos como Almas
- */
 function acceptFriendRequest(username, from) {
-  // Adicionar como amigos mutuamente
   if (!db.friends[username]) db.friends[username] = [];
   if (!db.friends[from]) db.friends[from] = [];
 
-  if (!db.friends[username].includes(from)) {
-    db.friends[username].push(from);
-  }
-  if (!db.friends[from].includes(username)) {
-    db.friends[from].push(username);
-  }
+  if (!db.friends[username].includes(from)) db.friends[username].push(from);
+  if (!db.friends[from].includes(username)) db.friends[from].push(username);
 
-  // Remover solicitação
   if (db.friendRequests[username]) {
     db.friendRequests[username] = db.friendRequests[username].filter(r => r.from !== from);
   }
-
   saveDB();
 
-  // Notificar ambos com a lista atualizada
   const userSocketId = userSockets.get(username);
   const fromSocketId = userSockets.get(from);
 
@@ -487,9 +565,6 @@ function acceptFriendRequest(username, from) {
   console.log(`[almas] ${username} <-> ${from} (conectados!)`);
 }
 
-/**
- * Retorna lista de amigos com status online/offline
- */
 function getFriendsWithStatus(username) {
   const friends = db.friends[username] || [];
   return friends.map((friendUsername) => {
@@ -502,34 +577,24 @@ function getFriendsWithStatus(username) {
   });
 }
 
-/**
- * Deleta uma mensagem (chamada pelo timer)
- */
 function deleteMessage(messageId) {
   const message = activeMessages.get(messageId);
   if (!message) return;
 
-  // Remover do armazenamento
   activeMessages.delete(messageId);
 
-  // Limpar timer
   if (messageTimers.has(messageId)) {
     clearTimeout(messageTimers.get(messageId));
     messageTimers.delete(messageId);
   }
 
-  // Notificar remetente e destinatário
   const senderSocketId = userSockets.get(message.senderId);
   const receiverSocketId = userSockets.get(message.receiverId);
 
-  if (senderSocketId) {
-    io.to(senderSocketId).emit('message:delete', { messageId });
-  }
-  if (receiverSocketId) {
-    io.to(receiverSocketId).emit('message:delete', { messageId });
-  }
+  if (senderSocketId) io.to(senderSocketId).emit('message:delete', { messageId });
+  if (receiverSocketId) io.to(receiverSocketId).emit('message:delete', { messageId });
 
-  console.log(`[x] Mensagem ${messageId} apagada permanentemente`);
+  console.log(`[x] Mensagem ${messageId} apagada`);
 }
 
 // ============================================================
@@ -542,8 +607,8 @@ server.listen(PORT, '0.0.0.0', () => {
   ║       EPHEMERAL CHAT - Servidor          ║
   ║                                          ║
   ║   Rodando em: http://localhost:${PORT}      ║
-  ║   Mensagens expiram em: ${MESSAGE_TTL / 1000}s            ║
-  ║   Usuários cadastrados: ${Object.keys(db.users).length}              ║
+  ║   TTL: dinâmico (2s-20s)                ║
+  ║   Usuários: ${Object.keys(db.users).length}                          ║
   ╚══════════════════════════════════════════╝
   `);
 });

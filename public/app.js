@@ -2,7 +2,8 @@
  * Ephemeral Chat - Frontend Application
  * 
  * Gerencia autenticação, sessões persistentes, sistema de Almas,
- * mensagens em tempo real, temas e navegação.
+ * mensagens em tempo real com TTL dinâmico, temas,
+ * e sistema "Manter Conversa" com consentimento mútuo.
  */
 
 // ============================================================
@@ -15,7 +16,8 @@ const state = {
   token: null,
   username: null,
   displayName: null,
-  currentChat: null,    // username da Alma no chat atual
+  currentChat: null,
+  currentChatKept: false,  // se a conversa atual está em modo "manter"
   friends: [],
   friendRequests: [],
   isTyping: false,
@@ -84,8 +86,20 @@ const DOM = {
   sendBtn: document.getElementById('send-btn'),
   typingIndicator: document.getElementById('typing-indicator'),
 
-  // Template
-  messageTemplate: document.getElementById('message-template')
+  // Chat menu
+  chatMenuBtn: document.getElementById('chat-menu-btn'),
+  chatMenuDropdown: document.getElementById('chat-menu-dropdown'),
+  keepChatBtn: document.getElementById('keep-chat-btn'),
+  keptChatNotice: document.getElementById('kept-chat-notice'),
+
+  // Keep modal
+  keepModal: document.getElementById('keep-modal'),
+  keepModalCancel: document.getElementById('keep-modal-cancel'),
+  keepModalConfirm: document.getElementById('keep-modal-confirm'),
+
+  // Templates
+  messageTemplate: document.getElementById('message-template'),
+  keepInviteTemplate: document.getElementById('keep-invite-template')
 };
 
 // ============================================================
@@ -116,7 +130,6 @@ function connectSocket() {
   state.socket.on('connect', () => {
     console.log('[Ephemeral] Conectado ao servidor');
     state.connected = true;
-    // Se já tem sessão, validar e entrar
     checkExistingSession();
   });
 
@@ -128,7 +141,6 @@ function connectSocket() {
   state.socket.on('connect_error', (err) => {
     console.error('[Ephemeral] Erro de conexão:', err.message);
     state.connected = false;
-    // Mostrar login mesmo sem conexão (usuário verá erro ao tentar logar)
     navigateToScreen('login');
   });
 
@@ -136,16 +148,13 @@ function connectSocket() {
   state.socket.on('friends:list', (friends) => {
     state.friends = friends;
     renderSouls();
-    // Atualizar status no chat se estiver aberto
     if (state.currentChat) {
       const friend = friends.find(f => f.username === state.currentChat);
-      if (friend) {
-        updateChatStatus(friend.online);
-      }
+      if (friend) updateChatStatus(friend.online);
     }
   });
 
-  // -- Solicitações de amizade atualizadas
+  // -- Solicitações de amizade
   state.socket.on('friends:requests', (requests) => {
     state.friendRequests = requests;
     renderRequests();
@@ -153,9 +162,8 @@ function connectSocket() {
 
   // -- Nova mensagem recebida
   state.socket.on('message:new', (message) => {
-    // Só mostrar se estiver no chat com essa pessoa
     if (state.currentChat === message.senderId || state.currentChat === message.receiverId) {
-      addMessageToUI(message, 3000);
+      addMessageToUI(message);
       scrollToBottom();
     }
   });
@@ -165,25 +173,39 @@ function connectSocket() {
     removeMessageFromUI(messageId);
   });
 
-  // -- Status de usuário (online/offline)
+  // -- Status de usuário
   state.socket.on('user:status', ({ username, online }) => {
-    // Atualizar na lista de amigos
     const friend = state.friends.find(f => f.username === username);
     if (friend) {
       friend.online = online;
       renderSouls();
     }
-    // Atualizar no chat se aberto
-    if (state.currentChat === username) {
-      updateChatStatus(online);
-    }
+    if (state.currentChat === username) updateChatStatus(online);
   });
 
   // -- Indicador de digitando
   state.socket.on('user:typing', ({ userId, isTyping }) => {
-    if (state.currentChat === userId) {
-      toggleTypingIndicator(isTyping);
+    if (state.currentChat === userId) toggleTypingIndicator(isTyping);
+  });
+
+  // -- Convite "Manter conversa" recebido
+  state.socket.on('keep:invite', ({ from, fromDisplayName, chatKey }) => {
+    if (state.currentChat === from) {
+      showKeepInviteInChat(fromDisplayName, chatKey);
     }
+  });
+
+  // -- "Manter conversa" aceito
+  state.socket.on('keep:accepted', ({ chatKey, with: withUser }) => {
+    if (state.currentChat === withUser) {
+      state.currentChatKept = true;
+      DOM.keptChatNotice.classList.remove('hidden');
+    }
+  });
+
+  // -- "Manter conversa" recusado
+  state.socket.on('keep:rejected', ({ chatKey, by }) => {
+    // Opcional: mostrar notificação de recusa
   });
 }
 
@@ -196,13 +218,11 @@ function checkExistingSession() {
   if (savedToken) {
     state.socket.emit('auth:validate', { token: savedToken }, (response) => {
       if (response.success) {
-        // Sessão válida - entrar direto
         state.token = savedToken;
         state.username = response.user.username;
         state.displayName = response.user.displayName;
         enterApp();
       } else {
-        // Token inválido - limpar e mostrar login
         localStorage.removeItem('ephemeral_token');
         navigateToScreen('login');
       }
@@ -268,6 +288,8 @@ function setupEventListeners() {
   // Chat
   DOM.backBtn.addEventListener('click', () => {
     state.currentChat = null;
+    state.currentChatKept = false;
+    closeChatMenu();
     navigateToScreen('main');
   });
   DOM.messageInput.addEventListener('input', handleMessageInput);
@@ -275,6 +297,26 @@ function setupEventListeners() {
     if (e.key === 'Enter' && !DOM.sendBtn.disabled) handleSendMessage();
   });
   DOM.sendBtn.addEventListener('click', handleSendMessage);
+
+  // Chat menu (3 pontos)
+  DOM.chatMenuBtn.addEventListener('click', toggleChatMenu);
+  DOM.keepChatBtn.addEventListener('click', () => {
+    closeChatMenu();
+    if (state.currentChatKept) return; // Já está mantida
+    openKeepModal();
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!DOM.chatMenuBtn.contains(e.target) && !DOM.chatMenuDropdown.contains(e.target)) {
+      closeChatMenu();
+    }
+  });
+
+  // Keep modal
+  DOM.keepModalCancel.addEventListener('click', closeKeepModal);
+  DOM.keepModal.querySelector('.modal-backdrop').addEventListener('click', closeKeepModal);
+  DOM.keepModalConfirm.addEventListener('click', handleKeepRequest);
 }
 
 // ============================================================
@@ -291,10 +333,8 @@ function handleLogin(e) {
     return;
   }
 
-  // Verificar conexão com servidor
   if (!state.socket || !state.socket.connected) {
     showError(DOM.loginError, 'Conectando ao servidor... Tente novamente em alguns segundos.');
-    // Tentar reconectar
     if (state.socket) state.socket.connect();
     return;
   }
@@ -332,7 +372,6 @@ function handleRegister(e) {
     return;
   }
 
-  // Verificar conexão com servidor
   if (!state.socket || !state.socket.connected) {
     showError(DOM.registerError, 'Conectando ao servidor... Tente novamente em alguns segundos.');
     if (state.socket) state.socket.connect();
@@ -357,7 +396,6 @@ function handleLogout() {
   state.socket.emit('auth:logout', { token: state.token });
   clearSession();
   closeSettings();
-  // Limpar formulários
   DOM.loginUsername.value = '';
   DOM.loginPassword.value = '';
   DOM.loginError.textContent = '';
@@ -365,18 +403,13 @@ function handleLogout() {
 }
 
 // ============================================================
-// Entrar no app (após login/registro/sessão válida)
+// Entrar no app
 // ============================================================
 
 function enterApp() {
-  // Atualizar UI com dados do usuário
   DOM.myDisplayName.textContent = state.displayName;
   DOM.myAvatar.textContent = getInitials(state.displayName);
-
-  // Registrar no servidor para receber eventos em tempo real
   state.socket.emit('user:join', { username: state.username });
-
-  // Navegar para tela principal
   navigateToScreen('main');
 }
 
@@ -384,14 +417,8 @@ function enterApp() {
 // Settings
 // ============================================================
 
-function openSettings() {
-  DOM.settingsPanel.classList.remove('hidden');
-  updateThemeButtons();
-}
-
-function closeSettings() {
-  DOM.settingsPanel.classList.add('hidden');
-}
+function openSettings() { DOM.settingsPanel.classList.remove('hidden'); updateThemeButtons(); }
+function closeSettings() { DOM.settingsPanel.classList.add('hidden'); }
 
 // ============================================================
 // Tema
@@ -432,7 +459,6 @@ function handleAddSoul() {
       DOM.addSoulMessage.textContent = response.message;
       DOM.addSoulMessage.classList.add('success');
       DOM.addSoulInput.value = '';
-      // Voltar para main após 1.5s
       setTimeout(() => {
         DOM.addSoulMessage.textContent = '';
         DOM.addSoulMessage.classList.remove('success');
@@ -446,19 +472,11 @@ function handleAddSoul() {
 }
 
 function handleAcceptRequest(from) {
-  state.socket.emit('friends:accept', { username: state.username, from }, (response) => {
-    if (response.success) {
-      // As listas serão atualizadas via eventos do servidor
-    }
-  });
+  state.socket.emit('friends:accept', { username: state.username, from }, () => {});
 }
 
 function handleRejectRequest(from) {
-  state.socket.emit('friends:reject', { username: state.username, from }, (response) => {
-    if (response.success) {
-      // Atualizado via evento
-    }
-  });
+  state.socket.emit('friends:reject', { username: state.username, from }, () => {});
 }
 
 // ============================================================
@@ -467,8 +485,6 @@ function handleRejectRequest(from) {
 
 function renderSouls() {
   const container = DOM.soulsContainer;
-
-  // Limpar (preservar o empty state)
   const items = container.querySelectorAll('.soul-item');
   items.forEach(i => i.remove());
 
@@ -517,8 +533,8 @@ function renderRequests() {
         <div class="request-name">${escapeHtml(req.fromDisplayName || req.from)}</div>
       </div>
       <div class="request-actions">
-        <button class="btn-accept" data-from="${req.from}">Aceitar</button>
-        <button class="btn-reject" data-from="${req.from}">Recusar</button>
+        <button class="btn-accept">Aceitar</button>
+        <button class="btn-reject">Recusar</button>
       </div>
     `;
     item.querySelector('.btn-accept').addEventListener('click', () => handleAcceptRequest(req.from));
@@ -533,13 +549,22 @@ function renderRequests() {
 
 function openChat(friend) {
   state.currentChat = friend.username;
+  state.currentChatKept = false;
 
   DOM.chatContactName.textContent = friend.displayName;
   DOM.chatAvatar.textContent = getInitials(friend.displayName);
   updateChatStatus(friend.online);
 
-  // Limpar mensagens anteriores
   DOM.messagesList.innerHTML = '';
+  DOM.keptChatNotice.classList.add('hidden');
+
+  // Verificar se a conversa está mantida
+  state.socket.emit('keep:status', { user1: state.username, user2: friend.username }, (response) => {
+    if (response.kept) {
+      state.currentChatKept = true;
+      DOM.keptChatNotice.classList.remove('hidden');
+    }
+  });
 
   navigateToScreen('chat');
   DOM.messageInput.focus();
@@ -550,11 +575,78 @@ function updateChatStatus(online) {
   DOM.chatContactStatus.className = `status-text ${online ? 'online' : ''}`;
 }
 
+// ============================================================
+// Chat Menu (3 pontos)
+// ============================================================
+
+function toggleChatMenu() {
+  DOM.chatMenuDropdown.classList.toggle('hidden');
+}
+
+function closeChatMenu() {
+  DOM.chatMenuDropdown.classList.add('hidden');
+}
+
+// ============================================================
+// Manter Conversa
+// ============================================================
+
+function openKeepModal() {
+  DOM.keepModal.classList.remove('hidden');
+}
+
+function closeKeepModal() {
+  DOM.keepModal.classList.add('hidden');
+}
+
+function handleKeepRequest() {
+  closeKeepModal();
+
+  state.socket.emit('keep:request', { from: state.username, to: state.currentChat }, (response) => {
+    if (response.success) {
+      // Se já foi aceita automaticamente (outro já pediu antes)
+      if (response.message === 'Conversa mantida!') {
+        state.currentChatKept = true;
+        DOM.keptChatNotice.classList.remove('hidden');
+      }
+    }
+  });
+}
+
+function showKeepInviteInChat(fromDisplayName, chatKey) {
+  const template = DOM.keepInviteTemplate.content.cloneNode(true);
+  const invite = template.querySelector('.system-message');
+
+  invite.querySelector('strong').textContent = fromDisplayName;
+
+  invite.querySelector('.btn-invite-accept').addEventListener('click', () => {
+    state.socket.emit('keep:accept', { username: state.username, chatKey }, (response) => {
+      if (response.success) {
+        state.currentChatKept = true;
+        DOM.keptChatNotice.classList.remove('hidden');
+        invite.remove();
+      }
+    });
+  });
+
+  invite.querySelector('.btn-invite-reject').addEventListener('click', () => {
+    state.socket.emit('keep:reject', { username: state.username, chatKey }, () => {
+      invite.remove();
+    });
+  });
+
+  DOM.messagesList.appendChild(invite);
+  scrollToBottom();
+}
+
+// ============================================================
+// Mensagens
+// ============================================================
+
 function handleMessageInput() {
   const value = DOM.messageInput.value.trim();
   DOM.sendBtn.disabled = value.length === 0;
 
-  // Indicador de digitando
   if (!state.isTyping && value.length > 0) {
     state.isTyping = true;
     state.socket.emit('user:typing', { userId: state.username, targetId: state.currentChat, isTyping: true });
@@ -580,7 +672,6 @@ function handleSendMessage() {
   DOM.messageInput.value = '';
   DOM.sendBtn.disabled = true;
 
-  // Parar indicador de digitando
   state.isTyping = false;
   state.socket.emit('user:typing', { userId: state.username, targetId: state.currentChat, isTyping: false });
 
@@ -591,8 +682,8 @@ function handleSendMessage() {
 // Mensagens - UI
 // ============================================================
 
-function addMessageToUI(message, remainingTime) {
-  const { id, senderId, content, delivered } = message;
+function addMessageToUI(message) {
+  const { id, senderId, content, delivered, ttl, kept } = message;
   const isSent = senderId === state.username;
 
   const template = DOM.messageTemplate.content.cloneNode(true);
@@ -608,13 +699,22 @@ function addMessageToUI(message, remainingTime) {
 
   const timerEl = bubble.querySelector('.message-timer');
   const timerBarFill = bubble.querySelector('.timer-bar-fill');
+  const timerBar = bubble.querySelector('.timer-bar');
 
-  const remainingSec = Math.ceil(remainingTime / 1000);
-  timerEl.textContent = `${remainingSec}s`;
-  timerBarFill.style.animationDuration = `${remainingTime}ms`;
+  if (kept || state.currentChatKept) {
+    // Conversa mantida - sem timer
+    timerEl.textContent = '✓ mantida';
+    timerBar.style.display = 'none';
+  } else {
+    // TTL dinâmico
+    const messageTTL = ttl || 3000;
+    const remainingSec = Math.ceil(messageTTL / 1000);
+    timerEl.textContent = `${remainingSec}s`;
+    timerBarFill.style.animationDuration = `${messageTTL}ms`;
+    startCountdown(bubble, messageTTL);
+  }
 
   DOM.messagesList.appendChild(bubble);
-  startCountdown(bubble, remainingTime);
 }
 
 function startCountdown(bubble, remainingTime) {
@@ -644,11 +744,8 @@ function removeMessageFromUI(messageId) {
 }
 
 function toggleTypingIndicator(show) {
-  if (show) {
-    DOM.typingIndicator.classList.remove('hidden');
-  } else {
-    DOM.typingIndicator.classList.add('hidden');
-  }
+  if (show) DOM.typingIndicator.classList.remove('hidden');
+  else DOM.typingIndicator.classList.add('hidden');
   scrollToBottom();
 }
 
@@ -660,23 +757,15 @@ function navigateToScreen(screenName) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
 
   switch (screenName) {
-    case 'login':
-      DOM.loginScreen.classList.add('active');
-      break;
-    case 'register':
-      DOM.registerScreen.classList.add('active');
-      break;
-    case 'main':
-      DOM.mainScreen.classList.add('active');
-      break;
+    case 'login': DOM.loginScreen.classList.add('active'); break;
+    case 'register': DOM.registerScreen.classList.add('active'); break;
+    case 'main': DOM.mainScreen.classList.add('active'); break;
     case 'add-soul':
       DOM.addSoulScreen.classList.add('active');
       DOM.addSoulInput.value = '';
       DOM.addSoulMessage.textContent = '';
       break;
-    case 'chat':
-      DOM.chatScreen.classList.add('active');
-      break;
+    case 'chat': DOM.chatScreen.classList.add('active'); break;
   }
 }
 
@@ -687,9 +776,7 @@ function navigateToScreen(screenName) {
 function getInitials(name) {
   if (!name) return '?';
   const parts = name.trim().split(' ');
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
   return parts[0].substring(0, 2).toUpperCase();
 }
 
