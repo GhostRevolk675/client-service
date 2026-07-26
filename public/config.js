@@ -8,7 +8,7 @@
 
 const APP_CONFIG = {
   // ⚠️ ALTERE ESTA URL após fazer deploy no Render:
-  SERVER_URL: null,
+  SERVER_URL: 'https://client-service-r1al.onrender.com',
 
   // Tempo de vida das mensagens (deve ser igual ao servidor)
   MESSAGE_TTL: 3000,
