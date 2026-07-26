@@ -21,3 +21,6 @@ Thumbs.db
 # Environment
 .env
 *.keystore
+
+# User data (gerado pelo servidor)
+data.json

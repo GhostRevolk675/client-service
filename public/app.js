@@ -1,8 +1,8 @@
 /**
  * Ephemeral Chat - Frontend Application
  * 
- * Gerencia a conexão Socket.IO, navegação entre telas,
- * envio/recebimento de mensagens e timers de expiração.
+ * Gerencia autenticação, sessões persistentes, sistema de Almas,
+ * mensagens em tempo real, temas e navegação.
  */
 
 // ============================================================
@@ -11,12 +11,15 @@
 
 const state = {
   socket: null,
-  userId: null,
+  token: null,
   username: null,
-  currentContact: null,
-  contacts: [],
+  displayName: null,
+  currentChat: null,    // username da Alma no chat atual
+  friends: [],
+  friendRequests: [],
   isTyping: false,
-  typingTimeout: null
+  typingTimeout: null,
+  theme: 'dark'
 };
 
 // ============================================================
@@ -24,20 +27,50 @@ const state = {
 // ============================================================
 
 const DOM = {
-  // Telas
+  // Screens
   loginScreen: document.getElementById('login-screen'),
-  contactsScreen: document.getElementById('contacts-screen'),
+  registerScreen: document.getElementById('register-screen'),
+  mainScreen: document.getElementById('main-screen'),
+  addSoulScreen: document.getElementById('add-soul-screen'),
   chatScreen: document.getElementById('chat-screen'),
 
   // Login
-  usernameInput: document.getElementById('username-input'),
-  loginBtn: document.getElementById('login-btn'),
+  loginForm: document.getElementById('login-form'),
+  loginUsername: document.getElementById('login-username'),
+  loginPassword: document.getElementById('login-password'),
+  loginError: document.getElementById('login-error'),
+  showRegister: document.getElementById('show-register'),
 
-  // Contatos
+  // Register
+  registerForm: document.getElementById('register-form'),
+  registerUsername: document.getElementById('register-username'),
+  registerPassword: document.getElementById('register-password'),
+  registerConfirm: document.getElementById('register-confirm'),
+  registerError: document.getElementById('register-error'),
+  showLogin: document.getElementById('show-login'),
+
+  // Main
   myAvatar: document.getElementById('my-avatar'),
-  myUsername: document.getElementById('my-username'),
-  contactsContainer: document.getElementById('contacts-container'),
+  myDisplayName: document.getElementById('my-display-name'),
+  menuBtn: document.getElementById('menu-btn'),
+  requestsSection: document.getElementById('requests-section'),
+  requestsContainer: document.getElementById('requests-container'),
+  soulsContainer: document.getElementById('souls-container'),
+  emptySouls: document.getElementById('empty-souls'),
+
+  // Settings Panel
+  settingsPanel: document.getElementById('settings-panel'),
+  closeSettings: document.getElementById('close-settings'),
+  themeLightBtn: document.getElementById('theme-light-btn'),
+  themeDarkBtn: document.getElementById('theme-dark-btn'),
+  addSoulBtn: document.getElementById('add-soul-btn'),
   logoutBtn: document.getElementById('logout-btn'),
+
+  // Add Soul
+  backFromAdd: document.getElementById('back-from-add'),
+  addSoulInput: document.getElementById('add-soul-input'),
+  addSoulSubmit: document.getElementById('add-soul-submit'),
+  addSoulMessage: document.getElementById('add-soul-message'),
 
   // Chat
   backBtn: document.getElementById('back-btn'),
@@ -59,6 +92,7 @@ const DOM = {
 // ============================================================
 
 function init() {
+  loadTheme();
   setupEventListeners();
   connectSocket();
 }
@@ -68,73 +102,113 @@ function init() {
 // ============================================================
 
 function connectSocket() {
-  // Conectar ao servidor (usa config.js para determinar a URL)
   const serverUrl = getServerUrl();
   state.socket = serverUrl ? io(serverUrl, { transports: ['websocket', 'polling'] }) : io();
 
-  // -- Receber lista de contatos
-  state.socket.on('contacts:list', (contacts) => {
-    state.contacts = contacts;
-    renderContacts();
-  });
-
-  // -- Receber mensagens ativas (ao conectar)
-  state.socket.on('messages:active', (messages) => {
-    messages.forEach((msg) => {
-      if (msg.remainingTime > 0) {
-        addMessageToUI(msg, msg.remainingTime);
-      }
-    });
-    scrollToBottom();
-  });
-
-  // -- Nova mensagem recebida
-  state.socket.on('message:new', (message) => {
-    addMessageToUI(message, 3000);
-    scrollToBottom();
-
-    // Notificação sonora se a janela não está focada (opcional)
-    if (document.hidden && message.senderId !== state.userId) {
-      notifyUser(message);
-    }
-  });
-
-  // -- Mensagem deletada (expirou)
-  state.socket.on('message:delete', ({ messageId }) => {
-    removeMessageFromUI(messageId);
-  });
-
-  // -- Status do usuário (online/offline)
-  state.socket.on('user:status', ({ userId, online }) => {
-    updateContactStatus(userId, online);
-  });
-
-  // -- Indicador de digitando
-  state.socket.on('user:typing', ({ userId, isTyping }) => {
-    if (userId !== state.userId) {
-      toggleTypingIndicator(isTyping);
-    }
-  });
-
-  // -- Eventos de conexão (importante para app nativo)
   state.socket.on('connect', () => {
     console.log('[Ephemeral] Conectado ao servidor');
-    // Re-registrar usuário se já estava logado (reconexão)
-    if (state.userId && state.username) {
-      state.socket.emit('user:join', {
-        userId: state.userId,
-        username: state.username
-      });
-    }
+    // Se já tem sessão, validar e entrar
+    checkExistingSession();
   });
 
   state.socket.on('disconnect', () => {
-    console.log('[Ephemeral] Desconectado do servidor');
+    console.log('[Ephemeral] Desconectado');
   });
 
   state.socket.on('connect_error', (err) => {
     console.error('[Ephemeral] Erro de conexão:', err.message);
   });
+
+  // -- Lista de amigos atualizada
+  state.socket.on('friends:list', (friends) => {
+    state.friends = friends;
+    renderSouls();
+    // Atualizar status no chat se estiver aberto
+    if (state.currentChat) {
+      const friend = friends.find(f => f.username === state.currentChat);
+      if (friend) {
+        updateChatStatus(friend.online);
+      }
+    }
+  });
+
+  // -- Solicitações de amizade atualizadas
+  state.socket.on('friends:requests', (requests) => {
+    state.friendRequests = requests;
+    renderRequests();
+  });
+
+  // -- Nova mensagem recebida
+  state.socket.on('message:new', (message) => {
+    // Só mostrar se estiver no chat com essa pessoa
+    if (state.currentChat === message.senderId || state.currentChat === message.receiverId) {
+      addMessageToUI(message, 3000);
+      scrollToBottom();
+    }
+  });
+
+  // -- Mensagem deletada
+  state.socket.on('message:delete', ({ messageId }) => {
+    removeMessageFromUI(messageId);
+  });
+
+  // -- Status de usuário (online/offline)
+  state.socket.on('user:status', ({ username, online }) => {
+    // Atualizar na lista de amigos
+    const friend = state.friends.find(f => f.username === username);
+    if (friend) {
+      friend.online = online;
+      renderSouls();
+    }
+    // Atualizar no chat se aberto
+    if (state.currentChat === username) {
+      updateChatStatus(online);
+    }
+  });
+
+  // -- Indicador de digitando
+  state.socket.on('user:typing', ({ userId, isTyping }) => {
+    if (state.currentChat === userId) {
+      toggleTypingIndicator(isTyping);
+    }
+  });
+}
+
+// ============================================================
+// Sessão Persistente
+// ============================================================
+
+function checkExistingSession() {
+  const savedToken = localStorage.getItem('ephemeral_token');
+  if (savedToken) {
+    state.socket.emit('auth:validate', { token: savedToken }, (response) => {
+      if (response.success) {
+        // Sessão válida - entrar direto
+        state.token = savedToken;
+        state.username = response.user.username;
+        state.displayName = response.user.displayName;
+        enterApp();
+      } else {
+        // Token inválido - limpar e mostrar login
+        localStorage.removeItem('ephemeral_token');
+        navigateToScreen('login');
+      }
+    });
+  } else {
+    navigateToScreen('login');
+  }
+}
+
+function saveSession(token) {
+  state.token = token;
+  localStorage.setItem('ephemeral_token', token);
+}
+
+function clearSession() {
+  state.token = null;
+  state.username = null;
+  state.displayName = null;
+  localStorage.removeItem('ephemeral_token');
 }
 
 // ============================================================
@@ -142,247 +216,373 @@ function connectSocket() {
 // ============================================================
 
 function setupEventListeners() {
-  // Login
-  DOM.usernameInput.addEventListener('input', handleUsernameInput);
-  DOM.usernameInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !DOM.loginBtn.disabled) {
-      handleLogin();
-    }
+  // Auth - Login
+  DOM.loginForm.addEventListener('submit', handleLogin);
+  DOM.showRegister.addEventListener('click', (e) => {
+    e.preventDefault();
+    navigateToScreen('register');
   });
-  DOM.loginBtn.addEventListener('click', handleLogin);
+
+  // Auth - Register
+  DOM.registerForm.addEventListener('submit', handleRegister);
+  DOM.showLogin.addEventListener('click', (e) => {
+    e.preventDefault();
+    navigateToScreen('login');
+  });
+
+  // Settings
+  DOM.menuBtn.addEventListener('click', openSettings);
+  DOM.closeSettings.addEventListener('click', closeSettings);
+  DOM.settingsPanel.querySelector('.panel-backdrop').addEventListener('click', closeSettings);
+  DOM.themeLightBtn.addEventListener('click', () => setTheme('light'));
+  DOM.themeDarkBtn.addEventListener('click', () => setTheme('dark'));
+  DOM.addSoulBtn.addEventListener('click', () => { closeSettings(); navigateToScreen('add-soul'); });
+  DOM.logoutBtn.addEventListener('click', handleLogout);
+
+  // Add Soul
+  DOM.backFromAdd.addEventListener('click', () => navigateToScreen('main'));
+  DOM.addSoulSubmit.addEventListener('click', handleAddSoul);
+  DOM.addSoulInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') handleAddSoul();
+  });
 
   // Chat
-  DOM.backBtn.addEventListener('click', navigateToContacts);
+  DOM.backBtn.addEventListener('click', () => {
+    state.currentChat = null;
+    navigateToScreen('main');
+  });
   DOM.messageInput.addEventListener('input', handleMessageInput);
   DOM.messageInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter' && !DOM.sendBtn.disabled) {
-      handleSendMessage();
-    }
+    if (e.key === 'Enter' && !DOM.sendBtn.disabled) handleSendMessage();
   });
   DOM.sendBtn.addEventListener('click', handleSendMessage);
-
-  // Logout
-  DOM.logoutBtn.addEventListener('click', handleLogout);
 }
 
 // ============================================================
-// Handlers
+// Auth Handlers
 // ============================================================
 
-/**
- * Valida input do username e habilita/desabilita botão
- */
-function handleUsernameInput() {
-  const value = DOM.usernameInput.value.trim();
-  DOM.loginBtn.disabled = value.length < 2;
-}
+function handleLogin(e) {
+  e.preventDefault();
+  const username = DOM.loginUsername.value.trim();
+  const password = DOM.loginPassword.value;
 
-/**
- * Realiza o login e registra o usuário no servidor
- */
-function handleLogin() {
-  const username = DOM.usernameInput.value.trim();
-  if (username.length < 2) return;
+  if (!username || !password) {
+    showError(DOM.loginError, 'Preencha todos os campos');
+    return;
+  }
 
-  // Gerar ID único para o usuário
-  state.userId = 'user-' + generateId();
-  state.username = username;
+  DOM.loginError.textContent = '';
 
-  // Registrar no servidor
-  state.socket.emit('user:join', {
-    userId: state.userId,
-    username: state.username
+  state.socket.emit('auth:login', { username, password }, (response) => {
+    if (response.success) {
+      state.username = response.user.username;
+      state.displayName = response.user.displayName;
+      saveSession(response.token);
+      enterApp();
+    } else {
+      showError(DOM.loginError, response.error);
+    }
   });
-
-  // Atualizar UI
-  DOM.myUsername.textContent = username;
-  DOM.myAvatar.textContent = getInitials(username);
-
-  // Navegar para contatos
-  navigateToScreen('contacts');
 }
 
-/**
- * Logout - volta para a tela de login
- */
+function handleRegister(e) {
+  e.preventDefault();
+  const username = DOM.registerUsername.value.trim();
+  const password = DOM.registerPassword.value;
+  const confirm = DOM.registerConfirm.value;
+
+  if (!username || !password || !confirm) {
+    showError(DOM.registerError, 'Preencha todos os campos');
+    return;
+  }
+  if (password !== confirm) {
+    showError(DOM.registerError, 'As senhas não coincidem');
+    return;
+  }
+  if (password.length < 4) {
+    showError(DOM.registerError, 'Senha deve ter pelo menos 4 caracteres');
+    return;
+  }
+
+  DOM.registerError.textContent = '';
+
+  state.socket.emit('auth:register', { username, password }, (response) => {
+    if (response.success) {
+      state.username = response.user.username;
+      state.displayName = response.user.displayName;
+      saveSession(response.token);
+      enterApp();
+    } else {
+      showError(DOM.registerError, response.error);
+    }
+  });
+}
+
 function handleLogout() {
-  state.userId = null;
-  state.username = null;
-  DOM.usernameInput.value = '';
-  DOM.loginBtn.disabled = true;
+  state.socket.emit('auth:logout', { token: state.token });
+  clearSession();
+  closeSettings();
+  // Limpar formulários
+  DOM.loginUsername.value = '';
+  DOM.loginPassword.value = '';
+  DOM.loginError.textContent = '';
   navigateToScreen('login');
 }
 
-/**
- * Gerencia input de mensagem (habilitar envio + indicador digitando)
- */
+// ============================================================
+// Entrar no app (após login/registro/sessão válida)
+// ============================================================
+
+function enterApp() {
+  // Atualizar UI com dados do usuário
+  DOM.myDisplayName.textContent = state.displayName;
+  DOM.myAvatar.textContent = getInitials(state.displayName);
+
+  // Registrar no servidor para receber eventos em tempo real
+  state.socket.emit('user:join', { username: state.username });
+
+  // Navegar para tela principal
+  navigateToScreen('main');
+}
+
+// ============================================================
+// Settings
+// ============================================================
+
+function openSettings() {
+  DOM.settingsPanel.classList.remove('hidden');
+  updateThemeButtons();
+}
+
+function closeSettings() {
+  DOM.settingsPanel.classList.add('hidden');
+}
+
+// ============================================================
+// Tema
+// ============================================================
+
+function loadTheme() {
+  const saved = localStorage.getItem('ephemeral_theme') || 'dark';
+  setTheme(saved);
+}
+
+function setTheme(theme) {
+  state.theme = theme;
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('ephemeral_theme', theme);
+  updateThemeButtons();
+}
+
+function updateThemeButtons() {
+  DOM.themeLightBtn.classList.toggle('active', state.theme === 'light');
+  DOM.themeDarkBtn.classList.toggle('active', state.theme === 'dark');
+}
+
+// ============================================================
+// Almas (Friends)
+// ============================================================
+
+function handleAddSoul() {
+  const targetUsername = DOM.addSoulInput.value.trim();
+  if (!targetUsername) {
+    showError(DOM.addSoulMessage, 'Digite um nome de usuário');
+    return;
+  }
+
+  DOM.addSoulMessage.textContent = '';
+
+  state.socket.emit('friends:request', { from: state.username, to: targetUsername }, (response) => {
+    if (response.success) {
+      DOM.addSoulMessage.textContent = response.message;
+      DOM.addSoulMessage.classList.add('success');
+      DOM.addSoulInput.value = '';
+      // Voltar para main após 1.5s
+      setTimeout(() => {
+        DOM.addSoulMessage.textContent = '';
+        DOM.addSoulMessage.classList.remove('success');
+        navigateToScreen('main');
+      }, 1500);
+    } else {
+      DOM.addSoulMessage.classList.remove('success');
+      showError(DOM.addSoulMessage, response.error);
+    }
+  });
+}
+
+function handleAcceptRequest(from) {
+  state.socket.emit('friends:accept', { username: state.username, from }, (response) => {
+    if (response.success) {
+      // As listas serão atualizadas via eventos do servidor
+    }
+  });
+}
+
+function handleRejectRequest(from) {
+  state.socket.emit('friends:reject', { username: state.username, from }, (response) => {
+    if (response.success) {
+      // Atualizado via evento
+    }
+  });
+}
+
+// ============================================================
+// Renderização
+// ============================================================
+
+function renderSouls() {
+  const container = DOM.soulsContainer;
+
+  // Limpar (preservar o empty state)
+  const items = container.querySelectorAll('.soul-item');
+  items.forEach(i => i.remove());
+
+  if (state.friends.length === 0) {
+    DOM.emptySouls.classList.remove('hidden');
+    return;
+  }
+
+  DOM.emptySouls.classList.add('hidden');
+
+  state.friends.forEach((friend) => {
+    const item = document.createElement('div');
+    item.className = 'soul-item';
+    item.innerHTML = `
+      <div class="soul-avatar">
+        ${getInitials(friend.displayName)}
+        ${friend.online ? '<div class="online-dot"></div>' : ''}
+      </div>
+      <div class="soul-info">
+        <div class="soul-name">${escapeHtml(friend.displayName)}</div>
+        <div class="soul-status ${friend.online ? 'online' : ''}">${friend.online ? 'Online' : 'Offline'}</div>
+      </div>
+    `;
+    item.addEventListener('click', () => openChat(friend));
+    container.appendChild(item);
+  });
+}
+
+function renderRequests() {
+  const container = DOM.requestsContainer;
+  container.innerHTML = '';
+
+  if (state.friendRequests.length === 0) {
+    DOM.requestsSection.classList.add('hidden');
+    return;
+  }
+
+  DOM.requestsSection.classList.remove('hidden');
+
+  state.friendRequests.forEach((req) => {
+    const item = document.createElement('div');
+    item.className = 'request-item';
+    item.innerHTML = `
+      <div class="soul-avatar">${getInitials(req.fromDisplayName || req.from)}</div>
+      <div class="request-info">
+        <div class="request-name">${escapeHtml(req.fromDisplayName || req.from)}</div>
+      </div>
+      <div class="request-actions">
+        <button class="btn-accept" data-from="${req.from}">Aceitar</button>
+        <button class="btn-reject" data-from="${req.from}">Recusar</button>
+      </div>
+    `;
+    item.querySelector('.btn-accept').addEventListener('click', () => handleAcceptRequest(req.from));
+    item.querySelector('.btn-reject').addEventListener('click', () => handleRejectRequest(req.from));
+    container.appendChild(item);
+  });
+}
+
+// ============================================================
+// Chat
+// ============================================================
+
+function openChat(friend) {
+  state.currentChat = friend.username;
+
+  DOM.chatContactName.textContent = friend.displayName;
+  DOM.chatAvatar.textContent = getInitials(friend.displayName);
+  updateChatStatus(friend.online);
+
+  // Limpar mensagens anteriores
+  DOM.messagesList.innerHTML = '';
+
+  navigateToScreen('chat');
+  DOM.messageInput.focus();
+}
+
+function updateChatStatus(online) {
+  DOM.chatContactStatus.textContent = online ? 'online' : 'offline';
+  DOM.chatContactStatus.className = `status-text ${online ? 'online' : ''}`;
+}
+
 function handleMessageInput() {
   const value = DOM.messageInput.value.trim();
   DOM.sendBtn.disabled = value.length === 0;
 
-  // Emitir indicador de "digitando"
+  // Indicador de digitando
   if (!state.isTyping && value.length > 0) {
     state.isTyping = true;
-    state.socket.emit('user:typing', { userId: state.userId, isTyping: true });
+    state.socket.emit('user:typing', { userId: state.username, targetId: state.currentChat, isTyping: true });
   }
 
-  // Resetar timeout de "digitando"
   clearTimeout(state.typingTimeout);
   state.typingTimeout = setTimeout(() => {
     state.isTyping = false;
-    state.socket.emit('user:typing', { userId: state.userId, isTyping: false });
+    state.socket.emit('user:typing', { userId: state.username, targetId: state.currentChat, isTyping: false });
   }, 1500);
 }
 
-/**
- * Envia a mensagem para o servidor
- */
 function handleSendMessage() {
   const content = DOM.messageInput.value.trim();
-  if (!content) return;
+  if (!content || !state.currentChat) return;
 
   state.socket.emit('message:send', {
-    senderId: state.userId,
-    receiverId: state.currentContact,
+    senderId: state.username,
+    receiverId: state.currentChat,
     content
   });
 
-  // Limpar input
   DOM.messageInput.value = '';
   DOM.sendBtn.disabled = true;
 
   // Parar indicador de digitando
   state.isTyping = false;
-  state.socket.emit('user:typing', { userId: state.userId, isTyping: false });
+  state.socket.emit('user:typing', { userId: state.username, targetId: state.currentChat, isTyping: false });
 
-  // Foco de volta no input
   DOM.messageInput.focus();
-}
-
-// ============================================================
-// Navegação entre telas
-// ============================================================
-
-function navigateToScreen(screenName) {
-  // Remover active de todas as telas
-  document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'));
-
-  // Ativar a tela alvo
-  switch (screenName) {
-    case 'login':
-      DOM.loginScreen.classList.add('active');
-      break;
-    case 'contacts':
-      DOM.contactsScreen.classList.add('active');
-      break;
-    case 'chat':
-      DOM.chatScreen.classList.add('active');
-      DOM.messageInput.focus();
-      break;
-  }
-}
-
-function navigateToContacts() {
-  state.currentContact = null;
-  navigateToScreen('contacts');
-}
-
-function openChat(contact) {
-  state.currentContact = contact.id;
-
-  // Atualizar header do chat
-  DOM.chatContactName.textContent = contact.name;
-  DOM.chatAvatar.textContent = getInitials(contact.name);
-
-  // Limpar mensagens anteriores da UI
-  DOM.messagesList.innerHTML = '';
-
-  // Navegar
-  navigateToScreen('chat');
-}
-
-// ============================================================
-// Renderização de contatos
-// ============================================================
-
-function renderContacts() {
-  DOM.contactsContainer.innerHTML = '';
-
-  // Filtrar contatos (não mostrar a si mesmo)
-  const otherContacts = state.contacts.filter((c) => c.id !== state.userId);
-
-  // Se não há outros contatos reais, mostrar o contato padrão
-  const contactsToShow = otherContacts.length > 0 ? otherContacts : [
-    { id: 'contact-default', name: 'Contato', avatar: null }
-  ];
-
-  contactsToShow.forEach((contact) => {
-    const item = document.createElement('div');
-    item.className = 'contact-item';
-    item.innerHTML = `
-      <div class="contact-avatar">
-        ${getInitials(contact.name)}
-        <div class="online-indicator" id="status-${contact.id}"></div>
-      </div>
-      <div class="contact-info">
-        <div class="contact-name">${contact.name}</div>
-        <div class="contact-preview">Toque para conversar</div>
-      </div>
-    `;
-    item.addEventListener('click', () => openChat(contact));
-    DOM.contactsContainer.appendChild(item);
-  });
 }
 
 // ============================================================
 // Mensagens - UI
 // ============================================================
 
-/**
- * Adiciona uma mensagem na tela com timer de expiração
- */
 function addMessageToUI(message, remainingTime) {
   const { id, senderId, content, delivered } = message;
-  const isSent = senderId === state.userId;
+  const isSent = senderId === state.username;
 
-  // Clonar template
   const template = DOM.messageTemplate.content.cloneNode(true);
   const bubble = template.querySelector('.message-bubble');
 
-  // Configurar classes e dados
   bubble.classList.add(isSent ? 'sent' : 'received');
   bubble.dataset.messageId = id;
 
-  // Conteúdo
   bubble.querySelector('.message-content').textContent = content;
 
-  // Status (✓ ou ✓✓)
   const statusEl = bubble.querySelector('.message-status');
-  if (isSent) {
-    statusEl.textContent = delivered ? '✓✓' : '✓';
-  } else {
-    statusEl.textContent = '';
-  }
+  statusEl.textContent = isSent ? (delivered ? '✓✓' : '✓') : '';
 
-  // Timer visual
   const timerEl = bubble.querySelector('.message-timer');
   const timerBarFill = bubble.querySelector('.timer-bar-fill');
 
-  // Ajustar animação da barra ao tempo restante
   const remainingSec = Math.ceil(remainingTime / 1000);
   timerEl.textContent = `${remainingSec}s`;
   timerBarFill.style.animationDuration = `${remainingTime}ms`;
 
-  // Adicionar ao DOM
   DOM.messagesList.appendChild(bubble);
-
-  // Iniciar countdown do texto
   startCountdown(bubble, remainingTime);
 }
 
-/**
- * Inicia contagem regressiva visual na mensagem
- */
 function startCountdown(bubble, remainingTime) {
   const timerEl = bubble.querySelector('.message-timer');
   let remaining = remainingTime;
@@ -391,40 +591,23 @@ function startCountdown(bubble, remainingTime) {
     remaining -= 100;
     const sec = Math.max(0, Math.ceil(remaining / 1000));
     timerEl.textContent = `${sec}s`;
-
-    if (remaining <= 0) {
-      clearInterval(interval);
-    }
+    if (remaining <= 0) clearInterval(interval);
   }, 100);
 
-  // Guardar referência para limpar se a mensagem for removida antes
   bubble.dataset.intervalId = interval;
 }
 
-/**
- * Remove mensagem da UI com animação
- */
 function removeMessageFromUI(messageId) {
   const bubble = document.querySelector(`[data-message-id="${messageId}"]`);
   if (!bubble) return;
 
-  // Limpar interval do countdown
   if (bubble.dataset.intervalId) {
     clearInterval(parseInt(bubble.dataset.intervalId));
   }
 
-  // Adicionar classe de fade-out
   bubble.classList.add('fading');
-
-  // Remover do DOM após animação
-  setTimeout(() => {
-    bubble.remove();
-  }, 400);
+  setTimeout(() => bubble.remove(), 400);
 }
-
-// ============================================================
-// Indicador de digitando
-// ============================================================
 
 function toggleTypingIndicator(show) {
   if (show) {
@@ -436,20 +619,30 @@ function toggleTypingIndicator(show) {
 }
 
 // ============================================================
-// Status do contato
+// Navegação
 // ============================================================
 
-function updateContactStatus(userId, online) {
-  // Atualizar indicador na lista de contatos
-  const indicator = document.getElementById(`status-${userId}`);
-  if (indicator) {
-    indicator.style.display = online ? 'block' : 'none';
-  }
+function navigateToScreen(screenName) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
 
-  // Atualizar header do chat se estiver na conversa com esse contato
-  if (state.currentContact === userId || state.currentContact === 'contact-default') {
-    DOM.chatContactStatus.textContent = online ? 'online' : 'offline';
-    DOM.chatContactStatus.className = `status-text ${online ? 'online' : ''}`;
+  switch (screenName) {
+    case 'login':
+      DOM.loginScreen.classList.add('active');
+      break;
+    case 'register':
+      DOM.registerScreen.classList.add('active');
+      break;
+    case 'main':
+      DOM.mainScreen.classList.add('active');
+      break;
+    case 'add-soul':
+      DOM.addSoulScreen.classList.add('active');
+      DOM.addSoulInput.value = '';
+      DOM.addSoulMessage.textContent = '';
+      break;
+    case 'chat':
+      DOM.chatScreen.classList.add('active');
+      break;
   }
 }
 
@@ -457,9 +650,6 @@ function updateContactStatus(userId, online) {
 // Utilidades
 // ============================================================
 
-/**
- * Gera iniciais a partir do nome
- */
 function getInitials(name) {
   if (!name) return '?';
   const parts = name.trim().split(' ');
@@ -469,41 +659,25 @@ function getInitials(name) {
   return parts[0].substring(0, 2).toUpperCase();
 }
 
-/**
- * Gera ID simples
- */
-function generateId() {
-  return Math.random().toString(36).substring(2, 10);
-}
-
-/**
- * Scroll automático para o final das mensagens
- */
 function scrollToBottom() {
   requestAnimationFrame(() => {
     DOM.messagesContainer.scrollTop = DOM.messagesContainer.scrollHeight;
   });
 }
 
-/**
- * Notificação de nova mensagem (quando a aba não está focada)
- */
-function notifyUser(message) {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification('Nova mensagem efêmera', {
-      body: 'Você tem uma mensagem que desaparecerá em 3s',
-      icon: '/favicon.ico'
-    });
-  }
+function showError(element, message) {
+  element.textContent = message;
+  element.classList.remove('success');
 }
 
-// Solicitar permissão de notificação ao carregar
-if ('Notification' in window && Notification.permission === 'default') {
-  Notification.requestPermission();
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // ============================================================
-// Iniciar aplicação
+// Iniciar
 // ============================================================
 
 document.addEventListener('DOMContentLoaded', init);

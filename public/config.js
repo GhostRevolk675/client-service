@@ -24,7 +24,7 @@ const APP_CONFIG = {
   APP_NAME: 'Ephemeral Chat',
 
   // Versão
-  VERSION: '1.0.0'
+  VERSION: '2.0.0'
 };
 
 /**
