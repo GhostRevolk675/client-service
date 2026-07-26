@@ -3,10 +3,4 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Fundo escuro -->
     <item android:drawable="@color/splash_background" />
-    <!-- Ícone centralizado -->
-    <item
-        android:gravity="center"
-        android:width="96dp"
-        android:height="96dp"
-        android:drawable="@drawable/ic_launcher_foreground" />
 </layer-list>
