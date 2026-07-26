@@ -1,10 +1,10 @@
 /**
- * Ephemeral Chat Server
+ * Nexa - Servidor
  * 
- * Servidor de mensagens efêmeras com Socket.IO.
- * Inclui: autenticação, sistema de amigos (Almas),
- * mensagens em tempo real com auto-destruição dinâmica,
- * sistema "Manter Conversa" com consentimento mútuo.
+ * Aplicativo de mensagens seguras com auto-destruição.
+ * Inclui: autenticação, perfis, sistema de Almas, 
+ * mensagens com TTL dinâmico, "Manter Conversa",
+ * bloqueio de usuários, exclusão de conta.
  */
 
 const express = require('express');
@@ -15,47 +15,32 @@ const path = require('path');
 const fs = require('fs');
 
 // ============================================================
-// Configuração do servidor
+// Configuração
 // ============================================================
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
-    credentials: true
-  }
+  cors: { origin: '*', methods: ['GET', 'POST'], credentials: true }
 });
 
 const PORT = process.env.PORT || 3000;
 
 // ============================================================
-// TTL Dinâmico baseado no tamanho da mensagem
+// TTL Dinâmico
 // ============================================================
 
-/**
- * Calcula o tempo de vida da mensagem baseado no número de caracteres.
- * Mínimo: 2 segundos | Máximo: 20 segundos
- * 
- * Escala:
- *   10 chars = 2s
- *   40 chars = 4s
- *   100 chars = 7s
- *   200 chars = 12s
- *   300 chars = 17s
- */
 function calculateTTL(contentLength) {
   if (contentLength <= 10) return 2000;
   if (contentLength <= 40) return Math.round(2000 + ((contentLength - 10) / 30) * 2000);
   if (contentLength <= 100) return Math.round(4000 + ((contentLength - 40) / 60) * 3000);
   if (contentLength <= 200) return Math.round(7000 + ((contentLength - 100) / 100) * 5000);
   if (contentLength <= 300) return Math.round(12000 + ((contentLength - 200) / 100) * 5000);
-  return 20000; // máximo
+  return 20000;
 }
 
 // ============================================================
-// CORS middleware
+// Middleware
 // ============================================================
 
 app.use((req, res, next) => {
@@ -65,52 +50,41 @@ app.use((req, res, next) => {
   next();
 });
 
-// ============================================================
-// Servir arquivos estáticos do frontend
-// ============================================================
-
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    dirname: __dirname,
-    publicExists: fs.existsSync(path.join(__dirname, 'public')),
-    files: fs.existsSync(path.join(__dirname, 'public')) 
-      ? fs.readdirSync(path.join(__dirname, 'public')) 
-      : []
-  });
+  res.json({ status: 'ok', app: 'Nexa', users: Object.keys(db.users).length });
 });
 
 // ============================================================
-// Banco de dados em memória (persistido em arquivo JSON)
+// Banco de dados
 // ============================================================
 
 const DB_PATH = path.join(__dirname, 'data.json');
 
 let db = {
-  users: {},           // { username: { username, password, createdAt } }
-  friends: {},         // { username: [friendUsername, ...] }
-  friendRequests: {},  // { username: [{ from, timestamp }, ...] }
-  sessions: {},        // { token: { username, createdAt } }
-  keptChats: {},       // { "user1:user2": true } - conversas mantidas (ambos aceitaram)
-  keepRequests: {}     // { "user1:user2": { from, timestamp } } - solicitações pendentes
+  users: {},
+  friends: {},
+  friendRequests: {},
+  sessions: {},
+  keptChats: {},
+  keepRequests: {},
+  blocked: {},       // { username: [blockedUsername, ...] }
+  profiles: {}       // { username: { bio, status, accentColor, fontSize, animations } }
 };
 
 function loadDB() {
   try {
     if (fs.existsSync(DB_PATH)) {
-      const data = fs.readFileSync(DB_PATH, 'utf-8');
-      const loaded = JSON.parse(data);
+      const loaded = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
       db = { ...db, ...loaded };
-      // Garantir que campos novos existam
+      if (!db.blocked) db.blocked = {};
+      if (!db.profiles) db.profiles = {};
       if (!db.keptChats) db.keptChats = {};
       if (!db.keepRequests) db.keepRequests = {};
-      console.log('[DB] Banco de dados carregado');
     }
   } catch (err) {
-    console.error('[DB] Erro ao carregar:', err.message);
+    console.error('[DB] Erro:', err.message);
   }
 }
 
@@ -125,7 +99,7 @@ function saveDB() {
 loadDB();
 
 // ============================================================
-// Armazenamento em memória
+// Memória
 // ============================================================
 
 const activeMessages = new Map();
@@ -133,482 +107,389 @@ const messageTimers = new Map();
 const connectedUsers = new Map();
 const userSockets = new Map();
 
-// Mensagens mantidas (não expiram): { "user1:user2": [message, ...] }
-const keptMessages = new Map();
-
 // ============================================================
-// Funções auxiliares para "Manter Conversa"
+// Helpers
 // ============================================================
 
-/**
- * Gera chave única para um par de usuários (ordem alfabética)
- */
-function getChatKey(user1, user2) {
-  return [user1, user2].sort().join(':');
+function getChatKey(u1, u2) { return [u1, u2].sort().join(':'); }
+function isChatKept(u1, u2) { return db.keptChats[getChatKey(u1, u2)] === true; }
+function isBlocked(blocker, target) { return (db.blocked[blocker] || []).includes(target); }
+
+function getFriendsWithStatus(username) {
+  const friends = db.friends[username] || [];
+  const blockedList = db.blocked[username] || [];
+  return friends
+    .filter(f => !blockedList.includes(f))
+    .map(f => {
+      const user = db.users[f];
+      const profile = db.profiles[f] || {};
+      return {
+        username: f,
+        displayName: user?.displayName || f,
+        online: userSockets.has(f),
+        bio: profile.bio || '',
+        status: profile.status || 'online'
+      };
+    });
 }
 
-/**
- * Verifica se uma conversa está no modo "manter"
- */
-function isChatKept(user1, user2) {
-  const key = getChatKey(user1, user2);
-  return db.keptChats[key] === true;
+function getProfile(username) {
+  return db.profiles[username] || { bio: '', status: 'Disponível', accentColor: '#1E90FF', fontSize: 'medium', animations: true };
 }
 
 // ============================================================
-// Lógica de Socket.IO
+// Socket.IO
 // ============================================================
 
 io.on('connection', (socket) => {
-  console.log(`[+] Conexão: ${socket.id}`);
 
-  // ----------------------------------------------------------
-  // AUTENTICAÇÃO: Registro
-  // ----------------------------------------------------------
-  socket.on('auth:register', (data, callback) => {
+  // AUTH: Register
+  socket.on('auth:register', (data, cb) => {
     const { username, password } = data;
+    if (!username || username.trim().length < 2) return cb({ success: false, error: 'Nome deve ter 2+ caracteres' });
+    if (!password || password.length < 4) return cb({ success: false, error: 'Senha deve ter 4+ caracteres' });
 
-    if (!username || username.trim().length < 2) {
-      return callback({ success: false, error: 'Nome de usuário deve ter pelo menos 2 caracteres' });
-    }
-    if (!password || password.length < 4) {
-      return callback({ success: false, error: 'Senha deve ter pelo menos 4 caracteres' });
-    }
+    const norm = username.trim().toLowerCase();
+    if (db.users[norm]) return cb({ success: false, error: 'Nome já em uso' });
 
-    const normalizedUsername = username.trim().toLowerCase();
-
-    if (db.users[normalizedUsername]) {
-      return callback({ success: false, error: 'Esse nome de usuário já está em uso' });
-    }
-
-    db.users[normalizedUsername] = {
-      username: username.trim(),
-      displayName: username.trim(),
-      password: password,
-      createdAt: Date.now()
-    };
-
-    db.friends[normalizedUsername] = [];
-    db.friendRequests[normalizedUsername] = [];
+    db.users[norm] = { username: username.trim(), displayName: username.trim(), password, createdAt: Date.now() };
+    db.friends[norm] = [];
+    db.friendRequests[norm] = [];
+    db.blocked[norm] = [];
+    db.profiles[norm] = { bio: '', status: 'Disponível', accentColor: '#1E90FF', fontSize: 'medium', animations: true };
 
     const token = uuidv4();
-    db.sessions[token] = { username: normalizedUsername, createdAt: Date.now() };
-
+    db.sessions[token] = { username: norm, createdAt: Date.now() };
     saveDB();
-    console.log(`[auth] Novo usuário: ${username.trim()}`);
 
-    callback({ success: true, token, user: { username: normalizedUsername, displayName: username.trim() } });
+    cb({ success: true, token, user: { username: norm, displayName: username.trim() } });
   });
 
-  // ----------------------------------------------------------
-  // AUTENTICAÇÃO: Login
-  // ----------------------------------------------------------
-  socket.on('auth:login', (data, callback) => {
+  // AUTH: Login
+  socket.on('auth:login', (data, cb) => {
     const { username, password } = data;
+    if (!username || !password) return cb({ success: false, error: 'Preencha todos os campos' });
 
-    if (!username || !password) {
-      return callback({ success: false, error: 'Preencha todos os campos' });
-    }
-
-    const normalizedUsername = username.trim().toLowerCase();
-    const user = db.users[normalizedUsername];
-
-    if (!user || user.password !== password) {
-      return callback({ success: false, error: 'Usuário ou senha incorretos' });
-    }
+    const norm = username.trim().toLowerCase();
+    const user = db.users[norm];
+    if (!user || user.password !== password) return cb({ success: false, error: 'Usuário ou senha incorretos' });
 
     const token = uuidv4();
-    db.sessions[token] = { username: normalizedUsername, createdAt: Date.now() };
+    db.sessions[token] = { username: norm, createdAt: Date.now() };
     saveDB();
 
-    console.log(`[auth] Login: ${normalizedUsername}`);
-    callback({ success: true, token, user: { username: normalizedUsername, displayName: user.displayName || user.username } });
+    cb({ success: true, token, user: { username: norm, displayName: user.displayName || user.username } });
   });
 
-  // ----------------------------------------------------------
-  // AUTENTICAÇÃO: Validar sessão
-  // ----------------------------------------------------------
-  socket.on('auth:validate', (data, callback) => {
+  // AUTH: Validate
+  socket.on('auth:validate', (data, cb) => {
     const { token } = data;
-
-    if (!token || !db.sessions[token]) {
-      return callback({ success: false, error: 'Sessão inválida' });
-    }
-
+    if (!token || !db.sessions[token]) return cb({ success: false });
     const session = db.sessions[token];
     const user = db.users[session.username];
-
-    if (!user) {
-      delete db.sessions[token];
-      saveDB();
-      return callback({ success: false, error: 'Usuário não encontrado' });
-    }
-
-    callback({ success: true, user: { username: session.username, displayName: user.displayName || user.username } });
+    if (!user) { delete db.sessions[token]; saveDB(); return cb({ success: false }); }
+    cb({ success: true, user: { username: session.username, displayName: user.displayName || user.username } });
   });
 
-  // ----------------------------------------------------------
-  // AUTENTICAÇÃO: Logout
-  // ----------------------------------------------------------
+  // AUTH: Logout
   socket.on('auth:logout', (data) => {
-    const { token } = data;
-    if (token && db.sessions[token]) {
-      delete db.sessions[token];
-      saveDB();
-    }
+    if (data.token && db.sessions[data.token]) { delete db.sessions[data.token]; saveDB(); }
   });
 
-  // ----------------------------------------------------------
-  // USUÁRIO: Entrar
-  // ----------------------------------------------------------
+  // AUTH: Change password
+  socket.on('auth:changePassword', (data, cb) => {
+    const { username, oldPassword, newPassword } = data;
+    const user = db.users[username];
+    if (!user || user.password !== oldPassword) return cb({ success: false, error: 'Senha atual incorreta' });
+    if (!newPassword || newPassword.length < 4) return cb({ success: false, error: 'Nova senha deve ter 4+ caracteres' });
+    user.password = newPassword;
+    saveDB();
+    cb({ success: true });
+  });
+
+  // AUTH: Delete account
+  socket.on('auth:deleteAccount', (data, cb) => {
+    const { username, password } = data;
+    const user = db.users[username];
+    if (!user || user.password !== password) return cb({ success: false, error: 'Senha incorreta' });
+
+    // Remove from all friends lists
+    Object.keys(db.friends).forEach(key => {
+      db.friends[key] = db.friends[key].filter(f => f !== username);
+    });
+
+    delete db.users[username];
+    delete db.friends[username];
+    delete db.friendRequests[username];
+    delete db.blocked[username];
+    delete db.profiles[username];
+
+    // Remove sessions
+    Object.keys(db.sessions).forEach(token => {
+      if (db.sessions[token].username === username) delete db.sessions[token];
+    });
+
+    saveDB();
+    cb({ success: true });
+  });
+
+  // PROFILE: Get
+  socket.on('profile:get', (data, cb) => {
+    const profile = getProfile(data.username);
+    cb({ success: true, profile });
+  });
+
+  // PROFILE: Update
+  socket.on('profile:update', (data, cb) => {
+    const { username, bio, status, accentColor, fontSize, animations } = data;
+    if (!db.profiles[username]) db.profiles[username] = {};
+    if (bio !== undefined) db.profiles[username].bio = bio.substring(0, 150);
+    if (status !== undefined) db.profiles[username].status = status.substring(0, 30);
+    if (accentColor !== undefined) db.profiles[username].accentColor = accentColor;
+    if (fontSize !== undefined) db.profiles[username].fontSize = fontSize;
+    if (animations !== undefined) db.profiles[username].animations = animations;
+    saveDB();
+    cb({ success: true, profile: db.profiles[username] });
+  });
+
+  // BLOCK: Add
+  socket.on('block:add', (data, cb) => {
+    const { username, target } = data;
+    if (!db.blocked[username]) db.blocked[username] = [];
+    if (!db.blocked[username].includes(target)) {
+      db.blocked[username].push(target);
+      saveDB();
+    }
+    cb({ success: true });
+  });
+
+  // BLOCK: Remove
+  socket.on('block:remove', (data, cb) => {
+    const { username, target } = data;
+    if (db.blocked[username]) {
+      db.blocked[username] = db.blocked[username].filter(u => u !== target);
+      saveDB();
+    }
+    cb({ success: true });
+  });
+
+  // BLOCK: List
+  socket.on('block:list', (data, cb) => {
+    cb({ success: true, blocked: db.blocked[data.username] || [] });
+  });
+
+  // USER: Join
   socket.on('user:join', (data) => {
     const { username } = data;
-
     connectedUsers.set(socket.id, { username, online: true });
     userSockets.set(username, socket.id);
 
-    // Notificar amigos
     const friends = db.friends[username] || [];
-    friends.forEach((friendUsername) => {
-      const friendSocketId = userSockets.get(friendUsername);
-      if (friendSocketId) {
-        io.to(friendSocketId).emit('user:status', { username, online: true });
-      }
+    friends.forEach(f => {
+      const sid = userSockets.get(f);
+      if (sid) io.to(sid).emit('user:status', { username, online: true });
     });
 
     socket.emit('friends:list', getFriendsWithStatus(username));
     socket.emit('friends:requests', db.friendRequests[username] || []);
-
-    console.log(`[i] ${username} entrou`);
   });
 
-  // ----------------------------------------------------------
-  // ALMAS: Solicitação de amizade
-  // ----------------------------------------------------------
-  socket.on('friends:request', (data, callback) => {
+  // FRIENDS: Request
+  socket.on('friends:request', (data, cb) => {
     const { from, to } = data;
-    const normalizedTo = to.trim().toLowerCase();
+    const norm = to.trim().toLowerCase();
 
-    if (!db.users[normalizedTo]) {
-      return callback({ success: false, error: 'Usuário não encontrado' });
-    }
-    if (normalizedTo === from) {
-      return callback({ success: false, error: 'Você não pode adicionar a si mesmo' });
-    }
+    if (!db.users[norm]) return cb({ success: false, error: 'Usuário não encontrado' });
+    if (norm === from) return cb({ success: false, error: 'Não pode adicionar a si mesmo' });
+    if ((db.friends[from] || []).includes(norm)) return cb({ success: false, error: 'Já são Almas' });
+    if ((db.friendRequests[norm] || []).some(r => r.from === from)) return cb({ success: false, error: 'Solicitação já enviada' });
+    if (isBlocked(norm, from)) return cb({ success: false, error: 'Não foi possível enviar' });
 
-    const friends = db.friends[from] || [];
-    if (friends.includes(normalizedTo)) {
-      return callback({ success: false, error: 'Vocês já são Almas conectadas' });
-    }
-
-    const requests = db.friendRequests[normalizedTo] || [];
-    if (requests.some(r => r.from === from)) {
-      return callback({ success: false, error: 'Solicitação já enviada' });
+    // Auto-accept
+    const myReqs = db.friendRequests[from] || [];
+    if (myReqs.find(r => r.from === norm)) {
+      acceptFriend(from, norm);
+      return cb({ success: true, message: 'Alma conectada!' });
     }
 
-    // Auto-aceitar se a outra pessoa já mandou
-    const myRequests = db.friendRequests[from] || [];
-    const existingRequest = myRequests.find(r => r.from === normalizedTo);
-    if (existingRequest) {
-      acceptFriendRequest(from, normalizedTo);
-      return callback({ success: true, message: 'Alma conectada!' });
-    }
-
-    if (!db.friendRequests[normalizedTo]) db.friendRequests[normalizedTo] = [];
-    db.friendRequests[normalizedTo].push({
-      from,
-      fromDisplayName: db.users[from]?.displayName || from,
-      timestamp: Date.now()
-    });
+    if (!db.friendRequests[norm]) db.friendRequests[norm] = [];
+    db.friendRequests[norm].push({ from, fromDisplayName: db.users[from]?.displayName || from, timestamp: Date.now() });
     saveDB();
 
-    const targetSocketId = userSockets.get(normalizedTo);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('friends:requests', db.friendRequests[normalizedTo]);
-    }
+    const targetSid = userSockets.get(norm);
+    if (targetSid) io.to(targetSid).emit('friends:requests', db.friendRequests[norm]);
 
-    console.log(`[almas] ${from} -> ${normalizedTo} (solicitação)`);
-    callback({ success: true, message: 'Solicitação enviada!' });
+    cb({ success: true, message: 'Solicitação enviada!' });
   });
 
-  socket.on('friends:accept', (data, callback) => {
-    const { username, from } = data;
-    acceptFriendRequest(username, from);
-    callback({ success: true });
-  });
+  socket.on('friends:accept', (data, cb) => { acceptFriend(data.username, data.from); cb({ success: true }); });
 
-  socket.on('friends:reject', (data, callback) => {
-    const { username, from } = data;
-    if (db.friendRequests[username]) {
-      db.friendRequests[username] = db.friendRequests[username].filter(r => r.from !== from);
+  socket.on('friends:reject', (data, cb) => {
+    if (db.friendRequests[data.username]) {
+      db.friendRequests[data.username] = db.friendRequests[data.username].filter(r => r.from !== data.from);
     }
     saveDB();
-    socket.emit('friends:requests', db.friendRequests[username] || []);
-    callback({ success: true });
+    socket.emit('friends:requests', db.friendRequests[data.username] || []);
+    cb({ success: true });
   });
 
-  // ----------------------------------------------------------
-  // MENSAGENS: Enviar
-  // ----------------------------------------------------------
+  // MESSAGES: Send
   socket.on('message:send', (data) => {
     const { senderId, receiverId, content } = data;
 
+    if (isBlocked(receiverId, senderId)) return; // Blocked
+
+    const ttl = calculateTTL(content.length);
+    const kept = isChatKept(senderId, receiverId);
+
     const message = {
-      id: uuidv4(),
-      senderId,
-      receiverId,
-      content,
-      timestamp: Date.now(),
-      delivered: true
+      id: uuidv4(), senderId, receiverId, content,
+      timestamp: Date.now(), delivered: true,
+      ttl, kept, encrypted: true
     };
 
-    // Calcular TTL dinâmico baseado no tamanho
-    const ttl = calculateTTL(content.length);
-    message.ttl = ttl;
-
-    // Verificar se a conversa está em modo "manter"
-    const kept = isChatKept(senderId, receiverId);
-    message.kept = kept;
-
-    // Armazenar mensagem ativa
     activeMessages.set(message.id, message);
 
-    // Enviar para ambos
-    const senderSocketId = userSockets.get(senderId);
-    const receiverSocketId = userSockets.get(receiverId);
+    const senderSid = userSockets.get(senderId);
+    const receiverSid = userSockets.get(receiverId);
+    if (senderSid) io.to(senderSid).emit('message:new', message);
+    if (receiverSid) io.to(receiverSid).emit('message:new', message);
 
-    if (senderSocketId) io.to(senderSocketId).emit('message:new', message);
-    if (receiverSocketId) io.to(receiverSocketId).emit('message:new', message);
-
-    console.log(`[msg] ${senderId} -> ${receiverId}: "${content}" (TTL: ${ttl}ms, kept: ${kept})`);
-
-    // Se a conversa NÃO está mantida, agendar exclusão
     if (!kept) {
-      const timer = setTimeout(() => {
-        deleteMessage(message.id);
-      }, ttl);
+      const timer = setTimeout(() => deleteMessage(message.id), ttl);
       messageTimers.set(message.id, timer);
-    } else {
-      // Armazenar em mensagens mantidas
-      const chatKey = getChatKey(senderId, receiverId);
-      if (!keptMessages.has(chatKey)) keptMessages.set(chatKey, []);
-      keptMessages.get(chatKey).push(message);
     }
   });
 
-  // ----------------------------------------------------------
-  // MANTER CONVERSA: Solicitar
-  // ----------------------------------------------------------
-  socket.on('keep:request', (data, callback) => {
+  // KEEP: Request
+  socket.on('keep:request', (data, cb) => {
     const { from, to } = data;
-    const chatKey = getChatKey(from, to);
+    const key = getChatKey(from, to);
 
-    // Verificar se já está mantida
-    if (db.keptChats[chatKey]) {
-      return callback({ success: false, error: 'Esta conversa já está sendo mantida' });
+    if (db.keptChats[key]) return cb({ success: false, error: 'Conversa já mantida' });
+
+    if (db.keepRequests[key] && db.keepRequests[key].from === to) {
+      db.keptChats[key] = true;
+      delete db.keepRequests[key];
+      saveDB();
+      const fromSid = userSockets.get(from);
+      const toSid = userSockets.get(to);
+      if (fromSid) io.to(fromSid).emit('keep:accepted', { chatKey: key, with: to });
+      if (toSid) io.to(toSid).emit('keep:accepted', { chatKey: key, with: from });
+      return cb({ success: true, message: 'Conversa mantida!' });
     }
 
-    // Verificar se já existe solicitação
-    if (db.keepRequests[chatKey]) {
-      // Se a outra pessoa já solicitou, aceitar automaticamente
-      if (db.keepRequests[chatKey].from === to) {
-        db.keptChats[chatKey] = true;
-        delete db.keepRequests[chatKey];
-        saveDB();
+    if (db.keepRequests[key]) return cb({ success: false, error: 'Aguardando resposta' });
 
-        // Notificar ambos
-        const fromSocketId = userSockets.get(from);
-        const toSocketId = userSockets.get(to);
-        if (fromSocketId) io.to(fromSocketId).emit('keep:accepted', { chatKey, with: to });
-        if (toSocketId) io.to(toSocketId).emit('keep:accepted', { chatKey, with: from });
-
-        return callback({ success: true, message: 'Conversa mantida!' });
-      }
-      return callback({ success: false, error: 'Aguardando resposta do outro participante' });
-    }
-
-    // Criar solicitação
-    db.keepRequests[chatKey] = { from, timestamp: Date.now() };
+    db.keepRequests[key] = { from, timestamp: Date.now() };
     saveDB();
 
-    // Enviar convite para a outra pessoa via mensagem do sistema
-    const toSocketId = userSockets.get(to);
-    if (toSocketId) {
-      io.to(toSocketId).emit('keep:invite', { 
-        from, 
-        fromDisplayName: db.users[from]?.displayName || from,
-        chatKey 
-      });
-    }
+    const toSid = userSockets.get(to);
+    if (toSid) io.to(toSid).emit('keep:invite', { from, fromDisplayName: db.users[from]?.displayName || from, chatKey: key });
 
-    console.log(`[keep] ${from} solicitou manter conversa com ${to}`);
-    callback({ success: true, message: 'Convite enviado! A outra pessoa precisa aceitar.' });
+    cb({ success: true, message: 'Convite enviado!' });
   });
 
-  // ----------------------------------------------------------
-  // MANTER CONVERSA: Aceitar
-  // ----------------------------------------------------------
-  socket.on('keep:accept', (data, callback) => {
+  socket.on('keep:accept', (data, cb) => {
     const { username, chatKey } = data;
+    if (!db.keepRequests[chatKey]) return cb({ success: false });
 
-    if (!db.keepRequests[chatKey]) {
-      return callback({ success: false, error: 'Solicitação não encontrada' });
-    }
-
-    // Ativar modo manter
     db.keptChats[chatKey] = true;
     const requester = db.keepRequests[chatKey].from;
     delete db.keepRequests[chatKey];
     saveDB();
 
-    // Notificar ambos
-    const requesterSocketId = userSockets.get(requester);
-    const accepterSocketId = userSockets.get(username);
-
-    if (requesterSocketId) io.to(requesterSocketId).emit('keep:accepted', { chatKey, with: username });
-    if (accepterSocketId) io.to(accepterSocketId).emit('keep:accepted', { chatKey, with: requester });
-
-    console.log(`[keep] ${username} aceitou manter conversa (${chatKey})`);
-    callback({ success: true });
+    const reqSid = userSockets.get(requester);
+    const accSid = userSockets.get(username);
+    if (reqSid) io.to(reqSid).emit('keep:accepted', { chatKey, with: username });
+    if (accSid) io.to(accSid).emit('keep:accepted', { chatKey, with: requester });
+    cb({ success: true });
   });
 
-  // ----------------------------------------------------------
-  // MANTER CONVERSA: Recusar
-  // ----------------------------------------------------------
-  socket.on('keep:reject', (data, callback) => {
+  socket.on('keep:reject', (data, cb) => {
     const { username, chatKey } = data;
-
     if (db.keepRequests[chatKey]) {
       const requester = db.keepRequests[chatKey].from;
       delete db.keepRequests[chatKey];
       saveDB();
-
-      // Notificar quem solicitou
-      const requesterSocketId = userSockets.get(requester);
-      if (requesterSocketId) {
-        io.to(requesterSocketId).emit('keep:rejected', { chatKey, by: username });
-      }
+      const reqSid = userSockets.get(requester);
+      if (reqSid) io.to(reqSid).emit('keep:rejected', { chatKey, by: username });
     }
-
-    callback({ success: true });
+    cb({ success: true });
   });
 
-  // ----------------------------------------------------------
-  // MANTER CONVERSA: Verificar status
-  // ----------------------------------------------------------
-  socket.on('keep:status', (data, callback) => {
-    const { user1, user2 } = data;
-    const chatKey = getChatKey(user1, user2);
-    const kept = db.keptChats[chatKey] === true;
-    const pending = db.keepRequests[chatKey] || null;
-    callback({ kept, pending });
+  socket.on('keep:status', (data, cb) => {
+    const key = getChatKey(data.user1, data.user2);
+    cb({ kept: db.keptChats[key] === true, pending: db.keepRequests[key] || null });
   });
 
-  // ----------------------------------------------------------
-  // Indicador de "digitando..."
-  // ----------------------------------------------------------
+  // TYPING
   socket.on('user:typing', (data) => {
-    const { userId, targetId, isTyping } = data;
-    const targetSocketId = userSockets.get(targetId);
-    if (targetSocketId) {
-      io.to(targetSocketId).emit('user:typing', { userId, isTyping });
+    const targetSid = userSockets.get(data.targetId);
+    if (targetSid) io.to(targetSid).emit('user:typing', { userId: data.userId, isTyping: data.isTyping });
+  });
+
+  // SCREENSHOT DETECTION (client reports)
+  socket.on('screenshot:detected', (data) => {
+    const { username, chatWith } = data;
+    const targetSid = userSockets.get(chatWith);
+    if (targetSid) {
+      io.to(targetSid).emit('screenshot:alert', { 
+        by: username, 
+        byDisplayName: db.users[username]?.displayName || username 
+      });
     }
   });
 
-  // ----------------------------------------------------------
-  // Desconexão
-  // ----------------------------------------------------------
+  // DISCONNECT
   socket.on('disconnect', () => {
     const user = connectedUsers.get(socket.id);
     if (user) {
       const friends = db.friends[user.username] || [];
-      friends.forEach((friendUsername) => {
-        const friendSocketId = userSockets.get(friendUsername);
-        if (friendSocketId) {
-          io.to(friendSocketId).emit('user:status', { username: user.username, online: false });
-        }
+      friends.forEach(f => {
+        const sid = userSockets.get(f);
+        if (sid) io.to(sid).emit('user:status', { username: user.username, online: false });
       });
       userSockets.delete(user.username);
       connectedUsers.delete(socket.id);
-      console.log(`[-] ${user.username} desconectou`);
     }
   });
 });
 
 // ============================================================
-// Funções auxiliares
+// Funções
 // ============================================================
 
-function acceptFriendRequest(username, from) {
+function acceptFriend(username, from) {
   if (!db.friends[username]) db.friends[username] = [];
   if (!db.friends[from]) db.friends[from] = [];
-
   if (!db.friends[username].includes(from)) db.friends[username].push(from);
   if (!db.friends[from].includes(username)) db.friends[from].push(username);
-
-  if (db.friendRequests[username]) {
-    db.friendRequests[username] = db.friendRequests[username].filter(r => r.from !== from);
-  }
+  if (db.friendRequests[username]) db.friendRequests[username] = db.friendRequests[username].filter(r => r.from !== from);
   saveDB();
 
-  const userSocketId = userSockets.get(username);
-  const fromSocketId = userSockets.get(from);
-
-  if (userSocketId) {
-    io.to(userSocketId).emit('friends:list', getFriendsWithStatus(username));
-    io.to(userSocketId).emit('friends:requests', db.friendRequests[username] || []);
-  }
-  if (fromSocketId) {
-    io.to(fromSocketId).emit('friends:list', getFriendsWithStatus(from));
-  }
-
-  console.log(`[almas] ${username} <-> ${from} (conectados!)`);
-}
-
-function getFriendsWithStatus(username) {
-  const friends = db.friends[username] || [];
-  return friends.map((friendUsername) => {
-    const user = db.users[friendUsername];
-    return {
-      username: friendUsername,
-      displayName: user?.displayName || friendUsername,
-      online: userSockets.has(friendUsername)
-    };
-  });
+  const uSid = userSockets.get(username);
+  const fSid = userSockets.get(from);
+  if (uSid) { io.to(uSid).emit('friends:list', getFriendsWithStatus(username)); io.to(uSid).emit('friends:requests', db.friendRequests[username] || []); }
+  if (fSid) io.to(fSid).emit('friends:list', getFriendsWithStatus(from));
 }
 
 function deleteMessage(messageId) {
-  const message = activeMessages.get(messageId);
-  if (!message) return;
-
+  const msg = activeMessages.get(messageId);
+  if (!msg) return;
   activeMessages.delete(messageId);
+  if (messageTimers.has(messageId)) { clearTimeout(messageTimers.get(messageId)); messageTimers.delete(messageId); }
 
-  if (messageTimers.has(messageId)) {
-    clearTimeout(messageTimers.get(messageId));
-    messageTimers.delete(messageId);
-  }
-
-  const senderSocketId = userSockets.get(message.senderId);
-  const receiverSocketId = userSockets.get(message.receiverId);
-
-  if (senderSocketId) io.to(senderSocketId).emit('message:delete', { messageId });
-  if (receiverSocketId) io.to(receiverSocketId).emit('message:delete', { messageId });
-
-  console.log(`[x] Mensagem ${messageId} apagada`);
+  const sSid = userSockets.get(msg.senderId);
+  const rSid = userSockets.get(msg.receiverId);
+  if (sSid) io.to(sSid).emit('message:delete', { messageId });
+  if (rSid) io.to(rSid).emit('message:delete', { messageId });
 }
 
 // ============================================================
-// Iniciar servidor
+// Start
 // ============================================================
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`
-  ╔══════════════════════════════════════════╗
-  ║       EPHEMERAL CHAT - Servidor          ║
-  ║                                          ║
-  ║   Rodando em: http://localhost:${PORT}      ║
-  ║   TTL: dinâmico (2s-20s)                ║
-  ║   Usuários: ${Object.keys(db.users).length}                          ║
-  ╚══════════════════════════════════════════╝
-  `);
+  console.log(`\n  ⬡ Nexa Server | Port ${PORT} | Users: ${Object.keys(db.users).length}\n`);
 });

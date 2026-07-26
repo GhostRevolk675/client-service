@@ -3,381 +3,286 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>Ephemeral Chat</title>
+  <title>Nexa</title>
   <link rel="stylesheet" href="styles.css">
-  <!-- Socket.IO client (CDN with local fallback) -->
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script>
-    if (typeof io === 'undefined') {
-      var s = document.createElement('script');
-      s.src = '/socket.io/socket.io.js';
-      document.head.appendChild(s);
-    }
-  </script>
-  <!-- Configuração -->
+  <script>if(typeof io==='undefined'){var s=document.createElement('script');s.src='/socket.io/socket.io.js';document.head.appendChild(s);}</script>
   <script src="config.js"></script>
-  <!-- Google Fonts - Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div id="app">
+<div id="app">
 
-    <!-- ======================================================== -->
-    <!-- Tela de Login -->
-    <!-- ======================================================== -->
-    <div id="login-screen" class="screen active">
-      <div class="auth-container">
-        <div class="auth-logo">
-          <!-- Ghost icon inspirado no Pac-Man -->
-          <svg class="ghost-icon-large" width="72" height="72" viewBox="0 0 64 64" fill="none">
-            <path d="M32 4C18.745 4 8 14.745 8 28v24c0 1.5 1.2 2.5 2.5 1.8l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1.3.7 2.5-.3 2.5-1.8V28C56 14.745 45.255 4 32 4z" fill="url(#ghostGrad)"/>
-            <circle cx="24" cy="26" r="5" fill="white"/>
-            <circle cx="40" cy="26" r="5" fill="white"/>
-            <circle cx="25" cy="27" r="2.5" fill="#1a1a2e"/>
-            <circle cx="41" cy="27" r="2.5" fill="#1a1a2e"/>
-            <defs>
-              <linearGradient id="ghostGrad" x1="8" y1="4" x2="56" y2="56">
-                <stop offset="0%" stop-color="#8B5CF6"/>
-                <stop offset="100%" stop-color="#06B6D4"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-        <h1 class="auth-title">Ephemeral</h1>
-        <p class="auth-subtitle">Mensagens que desaparecem. Privacidade absoluta.</p>
-        
-        <div id="login-form" class="auth-form">
-          <div class="input-group">
-            <input type="text" id="login-username" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off">
-          </div>
-          <div class="input-group">
-            <input type="password" id="login-password" placeholder="Senha" autocomplete="off">
-          </div>
-          <div id="login-error" class="auth-error"></div>
-          <button type="button" id="login-btn" class="btn-primary">Entrar</button>
-        </div>
-
-        <p class="auth-switch">
-          Ainda não possui uma conta? <a href="#" id="show-register">Criar conta</a>
-        </p>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- Tela de Registro -->
-    <!-- ======================================================== -->
-    <div id="register-screen" class="screen">
-      <div class="auth-container">
-        <div class="auth-logo">
-          <svg class="ghost-icon-large" width="72" height="72" viewBox="0 0 64 64" fill="none">
-            <path d="M32 4C18.745 4 8 14.745 8 28v24c0 1.5 1.2 2.5 2.5 1.8l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1.3.7 2.5-.3 2.5-1.8V28C56 14.745 45.255 4 32 4z" fill="url(#ghostGrad2)"/>
-            <circle cx="24" cy="26" r="5" fill="white"/>
-            <circle cx="40" cy="26" r="5" fill="white"/>
-            <circle cx="25" cy="27" r="2.5" fill="#1a1a2e"/>
-            <circle cx="41" cy="27" r="2.5" fill="#1a1a2e"/>
-            <defs>
-              <linearGradient id="ghostGrad2" x1="8" y1="4" x2="56" y2="56">
-                <stop offset="0%" stop-color="#8B5CF6"/>
-                <stop offset="100%" stop-color="#06B6D4"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-        <h1 class="auth-title">Criar Conta</h1>
-        <p class="auth-subtitle">Junte-se ao mundo das mensagens efêmeras.</p>
-        
-        <div id="register-form" class="auth-form">
-          <div class="input-group">
-            <input type="text" id="register-username" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off">
-          </div>
-          <div class="input-group">
-            <input type="password" id="register-password" placeholder="Senha" autocomplete="off">
-          </div>
-          <div class="input-group">
-            <input type="password" id="register-confirm" placeholder="Confirmar senha" autocomplete="off">
-          </div>
-          <div id="register-error" class="auth-error"></div>
-          <button type="button" id="register-btn" class="btn-primary">Criar Conta</button>
-        </div>
-
-        <p class="auth-switch">
-          Já possui uma conta? <a href="#" id="show-login">Entrar</a>
-        </p>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- Tela Principal (Lista de Almas) -->
-    <!-- ======================================================== -->
-    <div id="main-screen" class="screen">
-      <header class="main-header">
-        <div class="header-left">
-          <div class="user-avatar" id="my-avatar"></div>
-          <div class="header-info">
-            <h2 id="my-display-name">Usuário</h2>
-            <span class="status-badge online">Online</span>
-          </div>
-        </div>
-        <div class="header-right">
-          <!-- Botão de menu (ghost icon) -->
-          <button id="menu-btn" class="btn-icon" title="Menu">
-            <svg class="ghost-icon-small" width="28" height="28" viewBox="0 0 64 64" fill="none">
-              <path d="M32 8C21.507 8 13 16.507 13 27v21c0 1 .8 1.7 1.7 1.2l3.5-2.4c.7-.5 1.6-.5 2.3 0l3.5 2.4c.7.5 1.6.5 2.3 0l3.5-2.4c.7-.5 1.6-.5 2.3 0l3.5 2.4c.7.5 1.6.5 2.3 0l3.5-2.4c.7-.5 1.6-.5 2.3 0l3.5 2.4c.9.5 1.7-.2 1.7-1.2V27C51 16.507 42.493 8 32 8z" fill="currentColor"/>
-              <circle cx="25" cy="25" r="3.5" fill="var(--bg-primary)"/>
-              <circle cx="39" cy="25" r="3.5" fill="var(--bg-primary)"/>
-            </svg>
-          </button>
-        </div>
-      </header>
-
-      <!-- Solicitações pendentes -->
-      <div id="requests-section" class="requests-section hidden">
-        <div class="section-title">Solicitações de Alma</div>
-        <div id="requests-container"></div>
-      </div>
-
-      <!-- Lista de Almas -->
-      <div class="souls-list">
-        <div class="section-title">Almas</div>
-        <div id="souls-container">
-          <div id="empty-souls" class="empty-state">
-            <svg class="ghost-icon-large" width="64" height="64" viewBox="0 0 64 64" fill="none" opacity="0.3">
-              <path d="M32 4C18.745 4 8 14.745 8 28v24c0 1.5 1.2 2.5 2.5 1.8l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1.3.7 2.5-.3 2.5-1.8V28C56 14.745 45.255 4 32 4z" fill="currentColor"/>
-            </svg>
-            <p>Nenhuma Alma conectada</p>
-            <span>Toque no menu para adicionar Almas</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- Painel de Configurações (overlay) -->
-    <!-- ======================================================== -->
-    <div id="settings-panel" class="panel hidden">
-      <div class="panel-backdrop"></div>
-      <div class="panel-content">
-        <div class="panel-header">
-          <h3>Configurações</h3>
-          <button id="close-settings" class="btn-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
-        </div>
-        <div class="panel-body">
-          <div class="settings-group">
-            <div class="settings-item" id="theme-light-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-              </svg>
-              <span>Tema Claro</span>
-            </div>
-            <div class="settings-item" id="theme-dark-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
-              <span>Tema Escuro</span>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="settings-item" id="add-soul-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/>
-              </svg>
-              <span>Adicionar Almas</span>
-            </div>
-          </div>
-          <div class="settings-group">
-            <div class="settings-item danger" id="logout-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-              </svg>
-              <span>Sair da Conta</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- Tela de Adicionar Alma -->
-    <!-- ======================================================== -->
-    <div id="add-soul-screen" class="screen">
-      <header class="sub-header">
-        <button id="back-from-add" class="btn-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-        </button>
-        <h3>Adicionar Alma</h3>
-        <div style="width:36px"></div>
-      </header>
-      <div class="add-soul-content">
-        <div class="add-soul-illustration">
-          <svg class="ghost-icon-large" width="80" height="80" viewBox="0 0 64 64" fill="none" opacity="0.6">
-            <path d="M32 4C18.745 4 8 14.745 8 28v24c0 1.5 1.2 2.5 2.5 1.8l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1 .7 2.3.7 3.3 0l5-3.5c1-.7 2.3-.7 3.3 0l5 3.5c1.3.7 2.5-.3 2.5-1.8V28C56 14.745 45.255 4 32 4z" fill="url(#ghostGrad3)"/>
-            <circle cx="24" cy="26" r="5" fill="white"/>
-            <circle cx="40" cy="26" r="5" fill="white"/>
-            <circle cx="25" cy="27" r="2.5" fill="#1a1a2e"/>
-            <circle cx="41" cy="27" r="2.5" fill="#1a1a2e"/>
-            <line x1="48" y1="8" x2="56" y2="8" stroke="#8B5CF6" stroke-width="2" stroke-linecap="round"/>
-            <line x1="52" y1="4" x2="52" y2="12" stroke="#8B5CF6" stroke-width="2" stroke-linecap="round"/>
-            <defs>
-              <linearGradient id="ghostGrad3" x1="8" y1="4" x2="56" y2="56">
-                <stop offset="0%" stop-color="#8B5CF6"/>
-                <stop offset="100%" stop-color="#06B6D4"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
-        <p class="add-soul-description">Digite o nome de usuário da pessoa que deseja adicionar como Alma.</p>
-        <div class="input-group">
-          <input type="text" id="add-soul-input" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off">
-        </div>
-        <div id="add-soul-message" class="auth-error"></div>
-        <button id="add-soul-submit" class="btn-primary">Adicionar</button>
-      </div>
-    </div>
-
-    <!-- ======================================================== -->
-    <!-- Tela de Chat -->
-    <!-- ======================================================== -->
-    <div id="chat-screen" class="screen">
-      <header class="chat-header">
-        <button id="back-btn" class="btn-icon" title="Voltar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-        </button>
-        <div class="chat-header-info">
-          <div class="contact-avatar" id="chat-avatar"></div>
-          <div class="chat-header-text">
-            <h3 id="chat-contact-name">Contato</h3>
-            <span id="chat-contact-status" class="status-text">offline</span>
-          </div>
-        </div>
-        <!-- Menu 3 barras/pontos no chat -->
-        <div class="chat-menu-wrapper">
-          <button id="chat-menu-btn" class="btn-icon" title="Opções">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/>
-            </svg>
-          </button>
-          <!-- Dropdown menu -->
-          <div id="chat-menu-dropdown" class="chat-dropdown hidden">
-            <div class="dropdown-item" id="keep-chat-btn">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-              </svg>
-              <div class="dropdown-item-text">
-                <span class="dropdown-item-title">Manter conversa?</span>
-                <span class="dropdown-item-desc">Ao ativar, suas mensagens ficarão salvas para que você possa acessá-las novamente a qualquer momento.</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <!-- Balão de privacidade no topo do chat -->
-      <div id="chat-privacy-balloon" class="chat-privacy-balloon">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  <!-- ====== SPLASH SCREEN ====== -->
+  <div id="splash-screen" class="screen active">
+    <div class="splash-content">
+      <div class="splash-icon">
+        <svg width="80" height="80" viewBox="0 0 64 64" fill="none">
+          <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#nexaGrad)"/>
+          <path d="M20 44V20l24 24V20" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs><linearGradient id="nexaGrad" x1="0" y1="0" x2="64" y2="64"><stop offset="0%" stop-color="#1E90FF"/><stop offset="100%" stop-color="#0a1628"/></linearGradient></defs>
         </svg>
-        <span>Todas as mensagens enviadas serão protegidas e acessíveis apenas por você e pelo destinatário.</span>
       </div>
-
-      <!-- Aviso de conversa mantida -->
-      <div id="kept-chat-notice" class="kept-chat-notice hidden">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-        </svg>
-        <span>Conversa mantida — mensagens não serão apagadas</span>
+      <h1 class="splash-title">Nexa</h1>
+      <p class="splash-credit">by GhostRevolk</p>
+      <div class="splash-loader">
+        <div class="splash-loader-bar"></div>
       </div>
-
-      <!-- Área de mensagens -->
-      <div id="messages-container" class="messages-area">
-        <div id="messages-list"></div>
-        <!-- Indicador de digitando -->
-        <div id="typing-indicator" class="typing-indicator hidden">
-          <div class="typing-dots">
-            <span></span><span></span><span></span>
-          </div>
-          <span class="typing-text">digitando...</span>
-        </div>
-      </div>
-
-      <!-- Área de input -->
-      <div class="chat-input-area">
-        <div class="input-wrapper">
-          <input type="text" id="message-input" placeholder="Digite uma mensagem..." autocomplete="off">
-        </div>
-        <button id="send-btn" class="btn-send" disabled title="Enviar">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="22" y1="2" x2="11" y2="13"/>
-            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-          </svg>
-        </button>
-      </div>
+      <p class="splash-status">Iniciando aplicativo</p>
     </div>
-
-    <!-- ======================================================== -->
-    <!-- Modal de confirmação "Manter conversa" -->
-    <!-- ======================================================== -->
-    <div id="keep-modal" class="modal hidden">
-      <div class="modal-backdrop"></div>
-      <div class="modal-content">
-        <div class="modal-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="2">
-            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
-          </svg>
-        </div>
-        <h4 class="modal-title">Manter conversa</h4>
-        <p class="modal-text">Primeiro, a outra pessoa precisa aceitar o convite para manter esta conversa. Após a confirmação, as mensagens não serão apagadas automaticamente.</p>
-        <div class="modal-actions">
-          <button id="keep-modal-cancel" class="btn-modal-cancel">Cancelar</button>
-          <button id="keep-modal-confirm" class="btn-modal-confirm">Enviar convite</button>
-        </div>
-      </div>
-    </div>
-
   </div>
 
-  <!-- Template de mensagem -->
-  <template id="message-template">
-    <div class="message-bubble">
-      <div class="message-content"></div>
-      <div class="message-meta">
-        <span class="message-status"></span>
-        <span class="message-timer"></span>
-      </div>
-      <div class="timer-bar">
-        <div class="timer-bar-fill"></div>
-      </div>
-    </div>
-  </template>
-
-  <!-- Template de convite "Manter conversa" -->
-  <template id="keep-invite-template">
-    <div class="system-message keep-invite">
-      <div class="system-message-icon">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+  <!-- ====== LOGIN ====== -->
+  <div id="login-screen" class="screen">
+    <div class="auth-container">
+      <div class="auth-logo">
+        <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+          <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#nexaGrad2)"/>
+          <path d="M20 44V20l24 24V20" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs><linearGradient id="nexaGrad2" x1="0" y1="0" x2="64" y2="64"><stop offset="0%" stop-color="#1E90FF"/><stop offset="100%" stop-color="#0a1628"/></linearGradient></defs>
         </svg>
       </div>
-      <div class="system-message-text">
-        <strong></strong> quer manter esta conversa. Mensagens não serão mais apagadas.
+      <h1 class="auth-title">Nexa</h1>
+      <p class="auth-subtitle">Seguro. Privado. Temporário.</p>
+      <div class="auth-form">
+        <div class="input-group"><input type="text" id="login-username" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off"></div>
+        <div class="input-group"><input type="password" id="login-password" placeholder="Senha" autocomplete="off"></div>
+        <div id="login-error" class="auth-error"></div>
+        <button type="button" id="login-btn" class="btn-primary">Entrar</button>
       </div>
-      <div class="system-message-actions">
-        <button class="btn-accept btn-invite-accept">Aceitar</button>
-        <button class="btn-reject btn-invite-reject">Recusar</button>
+      <p class="auth-switch">Não tem conta? <a href="#" id="show-register">Criar conta</a></p>
+    </div>
+  </div>
+
+  <!-- ====== REGISTER ====== -->
+  <div id="register-screen" class="screen">
+    <div class="auth-container">
+      <div class="auth-logo">
+        <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+          <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#nexaGrad3)"/>
+          <path d="M20 44V20l24 24V20" stroke="white" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <defs><linearGradient id="nexaGrad3" x1="0" y1="0" x2="64" y2="64"><stop offset="0%" stop-color="#1E90FF"/><stop offset="100%" stop-color="#0a1628"/></linearGradient></defs>
+        </svg>
+      </div>
+      <h1 class="auth-title">Criar Conta</h1>
+      <p class="auth-subtitle">Sua identidade segura começa aqui.</p>
+      <div class="auth-form">
+        <div class="input-group"><input type="text" id="register-username" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off"></div>
+        <div class="input-group"><input type="password" id="register-password" placeholder="Senha" autocomplete="off"></div>
+        <div class="input-group"><input type="password" id="register-confirm" placeholder="Confirmar senha" autocomplete="off"></div>
+        <div id="register-error" class="auth-error"></div>
+        <button type="button" id="register-btn" class="btn-primary">Criar Conta</button>
+      </div>
+      <p class="auth-switch">Já tem conta? <a href="#" id="show-login">Entrar</a></p>
+    </div>
+  </div>
+
+  <!-- ====== MAIN (Almas List) ====== -->
+  <div id="main-screen" class="screen">
+    <header class="main-header">
+      <div class="header-left">
+        <button id="profile-btn" class="avatar-btn" title="Perfil"><div class="user-avatar" id="my-avatar"></div></button>
+        <div class="header-info">
+          <h2 id="my-display-name">Usuário</h2>
+          <span class="encryption-badge"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Protegido</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button id="menu-btn" class="btn-icon" title="Menu">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </header>
+    <div id="requests-section" class="requests-section hidden">
+      <div class="section-title">Solicitações</div>
+      <div id="requests-container"></div>
+    </div>
+    <div class="souls-list">
+      <div class="section-title">Conversas</div>
+      <div id="souls-container">
+        <div id="empty-souls" class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 64 64" fill="none" opacity="0.3"><rect x="4" y="4" width="56" height="56" rx="16" fill="currentColor"/><path d="M20 44V20l24 24V20" stroke="var(--bg-primary)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <p>Nenhuma conversa</p>
+          <span>Adicione Almas no menu para começar</span>
+        </div>
       </div>
     </div>
-  </template>
+  </div>
 
-  <script src="app.js"></script>
+  <!-- ====== SETTINGS PANEL ====== -->
+  <div id="settings-panel" class="panel hidden">
+    <div class="panel-backdrop"></div>
+    <div class="panel-content">
+      <div class="panel-header"><h3>Menu</h3><button id="close-settings" class="btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>
+      <div class="panel-body">
+        <div class="settings-group">
+          <div class="settings-item" id="settings-profile-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Perfil</span></div>
+          <div class="settings-item" id="add-soul-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg><span>Adicionar Almas</span></div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-item" id="theme-light-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg><span>Tema Claro</span></div>
+          <div class="settings-item" id="theme-dark-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><span>Tema Escuro</span></div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-item" id="blocked-list-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg><span>Usuários Bloqueados</span></div>
+          <div class="settings-item" id="change-password-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span>Alterar Senha</span></div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-item coming-soon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Notificações<small>em breve</small></span></div>
+          <div class="settings-item coming-soon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span>Dispositivos<small>em breve</small></span></div>
+          <div class="settings-item coming-soon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>Backup Criptografado<small>em breve</small></span></div>
+        </div>
+        <div class="settings-group">
+          <div class="settings-item danger" id="delete-account-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg><span>Apagar Conta</span></div>
+          <div class="settings-item danger" id="logout-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span>Sair da Conta</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== PROFILE SCREEN ====== -->
+  <div id="profile-screen" class="screen">
+    <header class="sub-header"><button id="back-from-profile" class="btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button><h3>Perfil</h3><div style="width:36px"></div></header>
+    <div class="profile-content">
+      <div class="profile-avatar-large" id="profile-avatar-large"></div>
+      <div class="profile-name" id="profile-name-display"></div>
+      <div class="input-group"><label>Bio</label><textarea id="profile-bio" placeholder="Escreva algo sobre você..." maxlength="150" rows="3"></textarea></div>
+      <div class="input-group"><label>Status</label><input type="text" id="profile-status" placeholder="Disponível" maxlength="30"></div>
+      <button type="button" id="save-profile-btn" class="btn-primary">Salvar</button>
+      <div id="profile-message" class="auth-error"></div>
+    </div>
+  </div>
+
+  <!-- ====== ADD SOUL ====== -->
+  <div id="add-soul-screen" class="screen">
+    <header class="sub-header"><button id="back-from-add" class="btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button><h3>Adicionar Alma</h3><div style="width:36px"></div></header>
+    <div class="add-soul-content">
+      <p class="add-soul-description">Digite o nome de usuário para enviar uma solicitação.</p>
+      <div class="input-group"><input type="text" id="add-soul-input" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off"></div>
+      <div id="add-soul-message" class="auth-error"></div>
+      <button type="button" id="add-soul-submit" class="btn-primary">Adicionar</button>
+    </div>
+  </div>
+
+  <!-- ====== BLOCKED LIST ====== -->
+  <div id="blocked-screen" class="screen">
+    <header class="sub-header"><button id="back-from-blocked" class="btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button><h3>Bloqueados</h3><div style="width:36px"></div></header>
+    <div id="blocked-container" class="list-content">
+      <div class="empty-state"><p>Nenhum usuário bloqueado</p></div>
+    </div>
+  </div>
+
+  <!-- ====== CHANGE PASSWORD ====== -->
+  <div id="password-screen" class="screen">
+    <header class="sub-header"><button id="back-from-password" class="btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button><h3>Alterar Senha</h3><div style="width:36px"></div></header>
+    <div class="form-content">
+      <div class="input-group"><input type="password" id="old-password" placeholder="Senha atual" autocomplete="off"></div>
+      <div class="input-group"><input type="password" id="new-password" placeholder="Nova senha" autocomplete="off"></div>
+      <div class="input-group"><input type="password" id="confirm-new-password" placeholder="Confirmar nova senha" autocomplete="off"></div>
+      <div id="password-message" class="auth-error"></div>
+      <button type="button" id="save-password-btn" class="btn-primary">Alterar Senha</button>
+    </div>
+  </div>
+
+  <!-- ====== CHAT ====== -->
+  <div id="chat-screen" class="screen">
+    <header class="chat-header">
+      <button id="back-btn" class="btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+      <div class="chat-header-info">
+        <div class="contact-avatar" id="chat-avatar"></div>
+        <div class="chat-header-text">
+          <h3 id="chat-contact-name">Contato</h3>
+          <span id="chat-contact-status" class="status-text">offline</span>
+        </div>
+      </div>
+      <div class="chat-menu-wrapper">
+        <button id="chat-menu-btn" class="btn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/></svg></button>
+        <div id="chat-menu-dropdown" class="chat-dropdown hidden">
+          <div class="dropdown-item" id="keep-chat-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            <div class="dropdown-item-text"><span class="dropdown-item-title">Manter conversa</span><span class="dropdown-item-desc">Mensagens não serão apagadas após confirmação mútua.</span></div>
+          </div>
+          <div class="dropdown-item" id="block-user-btn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+            <div class="dropdown-item-text"><span class="dropdown-item-title">Bloquear</span><span class="dropdown-item-desc">Impedir que esta pessoa envie mensagens.</span></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Privacy balloon -->
+    <div class="chat-privacy-balloon">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>Todas as mensagens são protegidas e acessíveis apenas por você e pelo destinatário.</span>
+    </div>
+
+    <!-- Kept notice -->
+    <div id="kept-chat-notice" class="kept-chat-notice hidden">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+      <span>Conversa mantida — mensagens não serão apagadas</span>
+    </div>
+
+    <!-- Messages -->
+    <div id="messages-container" class="messages-area">
+      <div id="messages-list"></div>
+      <div id="typing-indicator" class="typing-indicator hidden">
+        <div class="typing-dots"><span></span><span></span><span></span></div>
+        <span class="typing-text">digitando...</span>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="chat-input-area">
+      <div class="input-wrapper"><input type="text" id="message-input" placeholder="Mensagem..." autocomplete="off"></div>
+      <button id="send-btn" class="btn-send" disabled><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button>
+    </div>
+  </div>
+
+  <!-- ====== KEEP MODAL ====== -->
+  <div id="keep-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div>
+      <h4 class="modal-title">Manter conversa</h4>
+      <p class="modal-text">A outra pessoa precisa aceitar o convite. Após confirmação, as mensagens não serão apagadas automaticamente.</p>
+      <div class="modal-actions"><button id="keep-modal-cancel" class="btn-modal-cancel">Cancelar</button><button id="keep-modal-confirm" class="btn-modal-confirm">Enviar convite</button></div>
+    </div>
+  </div>
+
+  <!-- ====== DELETE ACCOUNT MODAL ====== -->
+  <div id="delete-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+      <h4 class="modal-title">Apagar conta</h4>
+      <p class="modal-text">Esta ação é irreversível. Todos os seus dados serão permanentemente excluídos.</p>
+      <div class="input-group"><input type="password" id="delete-password" placeholder="Digite sua senha para confirmar" autocomplete="off"></div>
+      <div id="delete-error" class="auth-error"></div>
+      <div class="modal-actions"><button id="delete-modal-cancel" class="btn-modal-cancel">Cancelar</button><button id="delete-modal-confirm" class="btn-modal-confirm btn-danger">Apagar tudo</button></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Templates -->
+<template id="message-template">
+  <div class="message-bubble">
+    <div class="message-content"></div>
+    <div class="message-meta"><span class="message-status"></span><span class="message-timer"></span></div>
+    <div class="timer-bar"><div class="timer-bar-fill"></div></div>
+  </div>
+</template>
+
+<template id="keep-invite-template">
+  <div class="system-message keep-invite">
+    <div class="system-message-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></div>
+    <div class="system-message-text"><strong></strong> quer manter esta conversa.</div>
+    <div class="system-message-actions"><button class="btn-accept btn-invite-accept">Aceitar</button><button class="btn-reject btn-invite-reject">Recusar</button></div>
+  </div>
+</template>
+
+<script src="app.js"></script>
 </body>
 </html>

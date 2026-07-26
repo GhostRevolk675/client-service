@@ -14,10 +14,10 @@ const APP_CONFIG = {
   MESSAGE_TTL: 3000,
 
   // Nome do app
-  APP_NAME: 'Ephemeral Chat',
+  APP_NAME: 'Nexa',
 
   // Versão
-  VERSION: '2.0.0'
+  VERSION: '3.0.0'
 };
 
 /**
