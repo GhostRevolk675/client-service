@@ -11,6 +11,7 @@
 
 const state = {
   socket: null,
+  connected: false,
   token: null,
   username: null,
   displayName: null,
@@ -35,14 +36,14 @@ const DOM = {
   chatScreen: document.getElementById('chat-screen'),
 
   // Login
-  loginForm: document.getElementById('login-form'),
+  loginBtn: document.getElementById('login-btn'),
   loginUsername: document.getElementById('login-username'),
   loginPassword: document.getElementById('login-password'),
   loginError: document.getElementById('login-error'),
   showRegister: document.getElementById('show-register'),
 
   // Register
-  registerForm: document.getElementById('register-form'),
+  registerBtn: document.getElementById('register-btn'),
   registerUsername: document.getElementById('register-username'),
   registerPassword: document.getElementById('register-password'),
   registerConfirm: document.getElementById('register-confirm'),
@@ -103,20 +104,30 @@ function init() {
 
 function connectSocket() {
   const serverUrl = getServerUrl();
-  state.socket = serverUrl ? io(serverUrl, { transports: ['websocket', 'polling'] }) : io();
+  state.socket = serverUrl 
+    ? io(serverUrl, { 
+        transports: ['websocket', 'polling'],
+        reconnectionAttempts: 10,
+        reconnectionDelay: 2000,
+        timeout: 30000
+      }) 
+    : io();
 
   state.socket.on('connect', () => {
     console.log('[Ephemeral] Conectado ao servidor');
+    state.connected = true;
     // Se já tem sessão, validar e entrar
     checkExistingSession();
   });
 
   state.socket.on('disconnect', () => {
     console.log('[Ephemeral] Desconectado');
+    state.connected = false;
   });
 
   state.socket.on('connect_error', (err) => {
     console.error('[Ephemeral] Erro de conexão:', err.message);
+    state.connected = false;
     // Mostrar login mesmo sem conexão (usuário verá erro ao tentar logar)
     navigateToScreen('login');
   });
@@ -219,14 +230,20 @@ function clearSession() {
 
 function setupEventListeners() {
   // Auth - Login
-  DOM.loginForm.addEventListener('submit', handleLogin);
+  DOM.loginBtn.addEventListener('click', handleLogin);
+  DOM.loginPassword.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleLogin(); }
+  });
   DOM.showRegister.addEventListener('click', (e) => {
     e.preventDefault();
     navigateToScreen('register');
   });
 
   // Auth - Register
-  DOM.registerForm.addEventListener('submit', handleRegister);
+  DOM.registerBtn.addEventListener('click', handleRegister);
+  DOM.registerConfirm.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleRegister(); }
+  });
   DOM.showLogin.addEventListener('click', (e) => {
     e.preventDefault();
     navigateToScreen('login');
@@ -265,7 +282,7 @@ function setupEventListeners() {
 // ============================================================
 
 function handleLogin(e) {
-  e.preventDefault();
+  if (e) e.preventDefault();
   const username = DOM.loginUsername.value.trim();
   const password = DOM.loginPassword.value;
 
@@ -276,7 +293,9 @@ function handleLogin(e) {
 
   // Verificar conexão com servidor
   if (!state.socket || !state.socket.connected) {
-    showError(DOM.loginError, 'Sem conexão com o servidor. Verifique se o servidor está rodando.');
+    showError(DOM.loginError, 'Conectando ao servidor... Tente novamente em alguns segundos.');
+    // Tentar reconectar
+    if (state.socket) state.socket.connect();
     return;
   }
 
@@ -295,7 +314,7 @@ function handleLogin(e) {
 }
 
 function handleRegister(e) {
-  e.preventDefault();
+  if (e) e.preventDefault();
   const username = DOM.registerUsername.value.trim();
   const password = DOM.registerPassword.value;
   const confirm = DOM.registerConfirm.value;
@@ -315,7 +334,8 @@ function handleRegister(e) {
 
   // Verificar conexão com servidor
   if (!state.socket || !state.socket.connected) {
-    showError(DOM.registerError, 'Sem conexão com o servidor. Verifique se o servidor está rodando.');
+    showError(DOM.registerError, 'Conectando ao servidor... Tente novamente em alguns segundos.');
+    if (state.socket) state.socket.connect();
     return;
   }
 

@@ -48,16 +48,16 @@
         <h1 class="auth-title">Ephemeral</h1>
         <p class="auth-subtitle">Mensagens que desaparecem. Privacidade absoluta.</p>
         
-        <form id="login-form" class="auth-form">
+        <div id="login-form" class="auth-form">
           <div class="input-group">
-            <input type="text" id="login-username" placeholder="Nome de usuário" autocomplete="username" autocapitalize="off">
+            <input type="text" id="login-username" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off">
           </div>
           <div class="input-group">
-            <input type="password" id="login-password" placeholder="Senha" autocomplete="current-password">
+            <input type="password" id="login-password" placeholder="Senha" autocomplete="off">
           </div>
           <div id="login-error" class="auth-error"></div>
-          <button type="submit" id="login-btn" class="btn-primary">Entrar</button>
-        </form>
+          <button type="button" id="login-btn" class="btn-primary">Entrar</button>
+        </div>
 
         <p class="auth-switch">
           Ainda não possui uma conta? <a href="#" id="show-register">Criar conta</a>
@@ -88,19 +88,19 @@
         <h1 class="auth-title">Criar Conta</h1>
         <p class="auth-subtitle">Junte-se ao mundo das mensagens efêmeras.</p>
         
-        <form id="register-form" class="auth-form">
+        <div id="register-form" class="auth-form">
           <div class="input-group">
-            <input type="text" id="register-username" placeholder="Nome de usuário" autocomplete="username" autocapitalize="off">
+            <input type="text" id="register-username" placeholder="Nome de usuário" autocomplete="off" autocapitalize="off">
           </div>
           <div class="input-group">
-            <input type="password" id="register-password" placeholder="Senha" autocomplete="new-password">
+            <input type="password" id="register-password" placeholder="Senha" autocomplete="off">
           </div>
           <div class="input-group">
-            <input type="password" id="register-confirm" placeholder="Confirmar senha" autocomplete="new-password">
+            <input type="password" id="register-confirm" placeholder="Confirmar senha" autocomplete="off">
           </div>
           <div id="register-error" class="auth-error"></div>
-          <button type="submit" id="register-btn" class="btn-primary">Criar Conta</button>
-        </form>
+          <button type="button" id="register-btn" class="btn-primary">Criar Conta</button>
+        </div>
 
         <p class="auth-switch">
           Já possui uma conta? <a href="#" id="show-login">Entrar</a>
