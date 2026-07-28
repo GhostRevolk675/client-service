@@ -4,27 +4,15 @@
     android:height="108dp"
     android:viewportHeight="108"
     android:viewportWidth="108">
-    <!-- Chat bubble icon for Ephemeral Chat -->
-    <!-- Círculo de fundo com gradiente simulado -->
-    <path
-        android:fillColor="#8B5CF6"
-        android:pathData="M54,54m-26,0a26,26 0,1 1,52 0a26,26 0,1 1,-52 0" />
-    <!-- Ícone de chat (balão de mensagem) -->
+    <!-- Phantom ghost icon for launcher -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M42,46C42,43.79 43.79,42 46,42H62C64.21,42 66,43.79 66,46V54C66,56.21 64.21,58 62,58H57L52,62V58H46C43.79,58 42,56.21 42,54V46Z" />
-    <!-- Timer indicator (pequeno relógio) -->
+        android:pathData="M54,22C40.193,22 29,33.193 29,47v26c0 1.5 1.1 2.5 2.2 1.7l4.5-3.2c1-.7 2.2-.7 3.2 0l4.5 3.2c1 .7 2.2.7 3.2 0l4.5-3.2c1-.7 2.2-.7 3.2 0l4.5 3.2c1 .7 2.2.7 3.2 0l4.5-3.2c1-.7 2.2-.7 3.2 0l4.5 3.2c1.1.8 2.2-.2 2.2-1.7V47C79 33.193 67.807 22 54 22z"
+        android:fillAlpha="0.95"/>
     <path
-        android:fillColor="#0a0a0f"
-        android:pathData="M54,47.5m-2.5,0a2.5,2.5 0,1 1,5 0a2.5,2.5 0,1 1,-5 0" />
+        android:fillColor="#1a0f3a"
+        android:pathData="M44,45 m-4.5,0 a4.5,4.5 0,1 1,9 0 a4.5,4.5 0,1 1,-9 0"/>
     <path
-        android:fillColor="#0a0a0f"
-        android:pathData="M54,47.5L54,46"
-        android:strokeColor="#0a0a0f"
-        android:strokeWidth="0.8" />
-    <path
-        android:fillColor="#0a0a0f"
-        android:pathData="M54,47.5L55.5,47.5"
-        android:strokeColor="#0a0a0f"
-        android:strokeWidth="0.8" />
+        android:fillColor="#1a0f3a"
+        android:pathData="M64,45 m-4.5,0 a4.5,4.5 0,1 1,9 0 a4.5,4.5 0,1 1,-9 0"/>
 </vector>

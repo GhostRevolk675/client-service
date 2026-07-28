@@ -1,20 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <!-- Base application theme - Dark theme for Ephemeral Chat -->
     <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
-        <item name="colorPrimary">#0a0a0f</item>
-        <item name="colorPrimaryDark">#0a0a0f</item>
+        <item name="colorPrimary">#1a0f3a</item>
+        <item name="colorPrimaryDark">#0a0618</item>
         <item name="colorAccent">#8B5CF6</item>
         <item name="android:windowBackground">@color/splash_background</item>
     </style>
-
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
     </style>
-
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
     </style>

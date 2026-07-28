@@ -14,7 +14,7 @@ const APP_CONFIG = {
   MESSAGE_TTL: 3000,
 
   // Nome do app
-  APP_NAME: 'Nexa',
+  APP_NAME: 'Phantom',
 
   // Versão
   VERSION: '3.0.0'

@@ -1,5 +1,5 @@
 /**
- * Nexa - Frontend Application
+ * Phantom - Frontend Application
  * Secure ephemeral messaging with dynamic TTL, profiles, blocking, and "Keep Chat" system.
  */
 
@@ -79,11 +79,11 @@ function connectSocket() {
 // SESSION
 // ============================================================
 function checkSession() {
-  const t = localStorage.getItem('nexa_token');
+  const t = localStorage.getItem('phantom_token');
   if (t) {
     state.socket.emit('auth:validate', {token:t}, (r) => {
       if (r.success) { state.token=t; state.username=r.user.username; state.displayName=r.user.displayName; enterApp(); }
-      else { localStorage.removeItem('nexa_token'); endSplash('login'); }
+      else { localStorage.removeItem('phantom_token'); endSplash('login'); }
     });
   } else { endSplash('login'); }
 }
@@ -176,7 +176,7 @@ function doLogin() {
   if(!state.connected) return showErr(DOM.loginError,'Conectando... tente novamente em instantes.');
   DOM.loginError.textContent='';
   state.socket.emit('auth:login',{username:u,password:p},(r)=>{
-    if(r.success){state.username=r.user.username;state.displayName=r.user.displayName;localStorage.setItem('nexa_token',r.token);state.token=r.token;enterAppDirect();}
+    if(r.success){state.username=r.user.username;state.displayName=r.user.displayName;localStorage.setItem('phantom_token',r.token);state.token=r.token;enterAppDirect();}
     else showErr(DOM.loginError,r.error);
   });
 }
@@ -189,7 +189,7 @@ function doRegister() {
   if(!state.connected) return showErr(DOM.registerError,'Conectando... tente novamente em instantes.');
   DOM.registerError.textContent='';
   state.socket.emit('auth:register',{username:u,password:p},(r)=>{
-    if(r.success){state.username=r.user.username;state.displayName=r.user.displayName;localStorage.setItem('nexa_token',r.token);state.token=r.token;enterAppDirect();}
+    if(r.success){state.username=r.user.username;state.displayName=r.user.displayName;localStorage.setItem('phantom_token',r.token);state.token=r.token;enterAppDirect();}
     else showErr(DOM.registerError,r.error);
   });
 }
@@ -204,7 +204,7 @@ function enterAppDirect() {
 
 function doLogout() {
   state.socket.emit('auth:logout',{token:state.token});
-  localStorage.removeItem('nexa_token');
+  localStorage.removeItem('phantom_token');
   state.token=null;state.username=null;state.displayName=null;
   closePanel();
   nav('login');
@@ -403,8 +403,8 @@ function scrollBottom(){requestAnimationFrame(()=>{DOM.messagesContainer.scrollT
 // ============================================================
 // THEME
 // ============================================================
-function loadTheme(){setTheme(localStorage.getItem('nexa_theme')||'dark');}
-function setTheme(t){state.theme=t;document.documentElement.setAttribute('data-theme',t);localStorage.setItem('nexa_theme',t);updateThemeBtns();}
+function loadTheme(){setTheme(localStorage.getItem('phantom_theme')||'dark');}
+function setTheme(t){state.theme=t;document.documentElement.setAttribute('data-theme',t);localStorage.setItem('phantom_theme',t);updateThemeBtns();}
 function updateThemeBtns(){DOM.themeLightBtn.classList.toggle('active',state.theme==='light');DOM.themeDarkBtn.classList.toggle('active',state.theme==='dark');}
 
 // ============================================================

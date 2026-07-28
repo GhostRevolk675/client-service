@@ -491,5 +491,5 @@ function deleteMessage(messageId) {
 // ============================================================
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  ⬡ Nexa Server | Port ${PORT} | Users: ${Object.keys(db.users).length}\n`);
+  console.log(`\n  ⬡ Phantom Server | Port ${PORT} | Users: ${Object.keys(db.users).length}\n`);
 });
